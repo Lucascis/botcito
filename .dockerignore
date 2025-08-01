@@ -1,0 +1,7 @@
+node_modules
+*.log
+.env
+session_data
+tmp
+Dockerfile
+docker-compose.yml

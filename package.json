@@ -1,0 +1,26 @@
+{
+  "name": "secretario-virtual",
+  "version": "2.2.1",
+  "description": "Chatbot IA con WhatsApp Web y OpenAI en arquitectura MVC, con búsquedas oficiales",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "lint": "eslint . --ext .js",
+    "health": "node health.js"
+  },
+  "dependencies": {
+    "whatsapp-web.js": "^1.31.0",
+    "puppeteer": "^24.15.0",
+    "qrcode-terminal": "0.12.0",
+    "openai": "^5.11.0",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "express-rate-limit": "^8.0.1",
+    "dotenv": "^17.2.1",
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0"
+  }
+}

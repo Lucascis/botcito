@@ -1,0 +1,23 @@
+services:
+  app:
+    build: .
+    container_name: secretario_virtual_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - session_data:/usr/src/app/session_data
+    ports:
+      - "3000:3000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+    tmpfs:
+      - /tmp
+
+volumes:
+  session_data:
