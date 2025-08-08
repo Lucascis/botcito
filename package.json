@@ -1,13 +1,27 @@
 {
   "name": "secretario-virtual",
-  "version": "2.2.1",
-  "description": "Chatbot IA con WhatsApp Web y OpenAI en arquitectura MVC, con búsquedas oficiales",
+  "version": "3.0.0",
+  "description": "Plataforma multi-usuario con orquestación IA, conversaciones continuas y protección anti-loops",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
     "start": "node index.js",
+    "dev": "nodemon index.js",
     "lint": "eslint . --ext .js",
-    "health": "node health.js"
+    "health": "node health.js",
+    "test": "jest",
+    "migrate": "node scripts/migrate.js",
+    "test-setup": "node scripts/test-setup.js",
+    
+    "test-conversation": "node scripts/test-conversation.js",
+    "test-security": "node scripts/test-security.js",
+    "test-audio": "node scripts/test-audio.js",
+    "test-image": "node scripts/test-image.js",
+    "test-models": "node scripts/test-model-optimization.js",
+    "test-multimodal": "node scripts/test-multimodal.js",
+    "test-user-validation": "node scripts/test-user-validation.js",
+    "test-multi-chat": "node scripts/test-multi-chat.js"
+    
   },
   "dependencies": {
     "whatsapp-web.js": "^1.31.0",
@@ -18,9 +32,23 @@
     "helmet": "^8.1.0",
     "express-rate-limit": "^8.0.1",
     "dotenv": "^17.2.1",
-    "winston": "^3.17.0"
+    "winston": "^3.17.0",
+    "discord.js": "^14.14.1",
+    "node-telegram-bot-api": "^0.64.0",
+    "nodemailer": "^6.9.8",
+    "sqlite3": "^5.1.6",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "cors": "^2.8.5",
+    "express-validator": "^7.0.1",
+    "multer": "^1.4.5-lts.1",
+    "axios": "^1.6.2",
+    "node-cron": "^3.0.3",
+    "redis": "^4.6.10"
   },
   "devDependencies": {
-    "eslint": "^8.0.0"
+    "eslint": "^8.0.0",
+    "nodemon": "^3.0.2",
+    "jest": "^29.7.0"
   }
 }
