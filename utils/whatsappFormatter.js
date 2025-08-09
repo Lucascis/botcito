@@ -145,7 +145,7 @@ class WhatsAppFormatter {
   /**
    * Trunca texto si es muy largo para WhatsApp
    */
-  static truncateIfNeeded(text, maxLength = 4000) {
+  static truncateIfNeeded(text, maxLength = require('./constants').MAX_TEXT_CHARS) {
     if (!text || text.length <= maxLength) {
       return text;
     }

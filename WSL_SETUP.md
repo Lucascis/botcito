@@ -23,8 +23,7 @@ Usa el script `dev-setup.sh` que maneja automáticamente los problemas de rutas:
 # Comandos individuales
 ./dev-setup.sh migrate          # Inicializar base de datos
 ./dev-setup.sh test-setup       # Pruebas de configuración
-./dev-setup.sh test-pets        # Pruebas de mascotas
-./dev-setup.sh pet-examples     # Ejemplos de mascotas
+ 
 ```
 
 ### 2. Script de Docker
@@ -173,12 +172,7 @@ Una vez configurado, puedes usar el bot en WhatsApp:
 #bot buscar clima en Buenos Aires
 ```
 
-### Comandos de Mascotas:
-```
-#bot crear mascota Luna gato "curiosa y juguetona"
-#bot @1 ¡Hola Luna! ¿Cómo estás?
-#bot listar mascotas
-```
+ 
 
 ## 🔍 Comandos Útiles
 

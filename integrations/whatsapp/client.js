@@ -10,10 +10,13 @@ class WhatsAppIntegration {
   constructor() {
     this.sessionPath = path.resolve(__dirname, '../../session_data');
     this.processedMessageIds = new Set(); // Almacena IDs de mensajes ya procesados
-    this.botMessages = new Set(); // Almacena hashes de mensajes enviados por el bot
+    this.botMessages = new Map(); // hash -> timestamp, para TTL
     this.lastQrHash = null; // Evitar QR duplicado
     this.lastQrTs = 0; // Throttle para logs de QR
     this.initializing = false;
+    // Detectar ejecutable de Chromium del entorno (Docker) o fallback
+    const chromiumExecutable = process.env.PUPPETEER_EXECUTABLE_PATH || null;
+
     this.client = new Client({
       authStrategy: new LocalAuth({ dataPath: this.sessionPath, clientId: 'main' }),
       takeoverOnConflict: true,
@@ -21,6 +24,7 @@ class WhatsAppIntegration {
       authTimeoutMs: 10 * 60 * 1000, // 10 minutos para escanear QR
       puppeteer: {
         headless: true,
+        executablePath: chromiumExecutable || undefined,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -28,7 +32,6 @@ class WhatsAppIntegration {
           '--disable-crashpad',
           '--no-zygote',
           '--disable-gpu',
-          '--single-process',
           '--window-size=1280,720'
         ]
       },
@@ -57,6 +60,13 @@ class WhatsAppIntegration {
     if (!body || typeof body !== 'string') return false;
     
     const currentTime = Date.now();
+    // Purgar hashes expirados (TTL)
+    const { BOT_MSG_TTL_MS } = require('../../utils/constants');
+    for (const [hash, ts] of this.botMessages.entries()) {
+      if (currentTime - ts > BOT_MSG_TTL_MS) {
+        this.botMessages.delete(hash);
+      }
+    }
     // Crear hashes para los últimos 10 segundos
     for (let i = 0; i <= 2; i++) {
       const checkTime = Math.floor((currentTime - i * 5000) / 5000) * 5000;
@@ -99,6 +109,10 @@ class WhatsAppIntegration {
     };
     this.client.on('qr', (qr) => {
       try {
+        if (process.env.NODE_ENV === 'production') {
+          logger.info('QR generado (oculto en producción)');
+          return;
+        }
         const hash = crypto.createHash('md5').update(qr).digest('hex');
         const now = Date.now();
         // Evitar loguear el mismo QR repetidamente o más de 1 vez cada 30s
@@ -216,22 +230,26 @@ class WhatsAppIntegration {
   }
 
   async sendMessage(to, text) {
+    if (!to || typeof to !== 'string') {
+      throw new Error('sendMessage requires a valid destination');
+    }
     const chatId = to.includes('@') ? to : `whatsapp:${to}`;
     
     // Registrar el hash del mensaje del bot ANTES de enviarlo
     const messageHash = this.createMessageHash(chatId, text);
-    this.botMessages.add(messageHash);
+    this.botMessages.set(messageHash, Date.now());
     
     // Limpiar hashes antiguos para evitar crecimiento excesivo
-    if (this.botMessages.size > 1000) {
-      const hashArray = Array.from(this.botMessages);
-      // Eliminar los primeros 500 hashes más antiguos
-      for (let i = 0; i < 500; i++) {
-        this.botMessages.delete(hashArray[i]);
+    if (this.botMessages.size > 2000) {
+      // Purga adicional por tamaño
+      const entries = Array.from(this.botMessages.entries()).sort((a, b) => a[1] - b[1]);
+      for (let i = 0; i < 1000; i++) {
+        this.botMessages.delete(entries[i][0]);
       }
     }
     
-    logger.debug(`Enviando mensaje del bot (hash: ${messageHash}): ${text.substring(0, 50)}...`);
+    const preview = typeof text === 'string' ? text.substring(0, 50) : '';
+    logger.debug(`Enviando mensaje del bot (hash: ${messageHash}): ${preview}...`);
     await this.client.sendMessage(chatId, text);
   }
 

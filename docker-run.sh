@@ -11,21 +11,18 @@ show_help() {
     echo "Comandos disponibles:"
     echo "  migrate     - Inicializar base de datos"
     echo "  test-setup  - Ejecutar pruebas de configuración"
-    echo "  test-pets   - Ejecutar pruebas de mascotas"
     echo "  test-audio  - Ejecutar pruebas de audio"
     echo "  test-image  - Ejecutar pruebas de imagen"
     echo "  test-models - Ejecutar pruebas de optimización de modelos"
     echo "  test-multimodal - Ejecutar pruebas multimodales completas"
     echo "  test-user-validation - Ejecutar pruebas de validación de usuarios"
     echo "  test-multi-chat - Ejecutar pruebas de múltiples chats"
-    echo "  pet-examples- Ejecutar ejemplos de mascotas"
     echo "  shell       - Abrir shell interactivo"
     echo "  logs        - Ver logs del contenedor"
     echo "  restart     - Reiniciar el contenedor"
     echo ""
     echo "Ejemplos:"
     echo "  ./docker-run.sh migrate"
-    echo "  ./docker-run.sh test-pets"
     echo "  ./docker-run.sh shell"
 }
 
@@ -42,7 +39,7 @@ check_container() {
 run_command() {
     local cmd="$1"
     echo "🚀 Ejecutando: $cmd en el contenedor ${CONTAINER_NAME}..."
-    docker exec -it ${CONTAINER_NAME} su -s /bin/sh -c "$cmd" app
+    docker exec -it ${CONTAINER_NAME} sh -lc "$cmd"
 }
 
 # Manejar diferentes comandos
@@ -54,10 +51,6 @@ case "$1" in
     "test-setup")
         check_container
         run_command "node scripts/test-setup.js"
-        ;;
-    "test-pets")
-        check_container
-        run_command "node scripts/test-pets.js"
         ;;
     "test-conversation")
         check_container
@@ -91,14 +84,10 @@ case "$1" in
         check_container
         run_command "node scripts/test-multi-chat.js"
         ;;
-    "pet-examples")
-        check_container
-        run_command "node scripts/pet-examples.js"
-        ;;
     "shell")
         check_container
         echo "🐳 Abriendo shell interactivo en el contenedor..."
-        docker exec -it ${CONTAINER_NAME} su -s /bin/bash app
+        docker exec -it ${CONTAINER_NAME} /bin/bash || docker exec -it ${CONTAINER_NAME} /bin/sh
         ;;
     "logs")
         docker logs -f ${CONTAINER_NAME}

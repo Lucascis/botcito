@@ -17,7 +17,12 @@ async function testSecurity() {
     
     // Registrar mensaje como del bot
     const messageHash = whatsappIntegration.createMessageHash(testChat, testMessage);
-    whatsappIntegration.botMessages.add(messageHash);
+    // Compatibilidad: Map con TTL
+    if (whatsappIntegration.botMessages instanceof Map) {
+      whatsappIntegration.botMessages.set(messageHash, Date.now());
+    } else if (whatsappIntegration.botMessages && typeof whatsappIntegration.botMessages.add === 'function') {
+      whatsappIntegration.botMessages.add(messageHash);
+    }
     
     // Verificar que se detecta como mensaje del bot
     const isBotMessage = whatsappIntegration.isBotMessage(testChat, testMessage);

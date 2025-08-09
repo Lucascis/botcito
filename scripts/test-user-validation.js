@@ -64,8 +64,8 @@ async function testUserValidation() {
       
       // Verificar si el usuario está autorizado
       const isAuthorized = allowedNumbers.some(allowed => {
-        const normalizedAllowed = allowed.replace(/[\s\+\-\(\)]/g, '');
-        const normalizedUser = userNumber.replace(/[\s\+\-\(\)]/g, '');
+      const normalizedAllowed = allowed.replace(/[\s()+-]/g, '');
+      const normalizedUser = userNumber.replace(/[\s()+-]/g, '');
         return normalizedUser === normalizedAllowed || 
                normalizedUser.includes(normalizedAllowed) ||
                normalizedAllowed.includes(normalizedUser);
@@ -107,7 +107,7 @@ async function testUserValidation() {
     };
     
     const isAuthorized1 = allowedNumbers.some(allowed => 
-      allowed.replace(/[\s\+\-\(\)]/g, '').includes(scenario1.userNumber)
+      allowed.replace(/[\s()+-]/g, '').includes(scenario1.userNumber)
     );
     
     if (isAuthorized1 === scenario1.shouldWork) {
@@ -126,7 +126,7 @@ async function testUserValidation() {
     };
     
     const isAuthorized2 = allowedNumbers.some(allowed => 
-      allowed.replace(/[\s\+\-\(\)]/g, '').includes(scenario2.userNumber)
+      allowed.replace(/[\s()+-]/g, '').includes(scenario2.userNumber)
     );
     
     if (isAuthorized2 === scenario2.shouldWork) {
@@ -145,7 +145,7 @@ async function testUserValidation() {
     };
     
     const isAuthorized3 = allowedNumbers.some(allowed => 
-      allowed.replace(/[\s\+\-\(\)]/g, '').includes(scenario3.userNumber)
+      allowed.replace(/[\s()+-]/g, '').includes(scenario3.userNumber)
     );
     
     if (isAuthorized3 === scenario3.shouldWork) {

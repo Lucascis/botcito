@@ -27,9 +27,6 @@ run_in_docker() {
             "test-setup")
                 docker run --rm -v "$(pwd):/usr/src/app" -w /usr/src/app node:24-slim node scripts/test-setup.js
                 ;;
-            "test-pets")
-                docker run --rm -v "$(pwd):/usr/src/app" -w /usr/src/app node:24-slim node scripts/test-pets.js
-                ;;
             "test-conversation")
                 docker run --rm -v "$(pwd):/usr/src/app" -w /usr/src/app node:24-slim node scripts/test-conversation.js
                 ;;
@@ -54,9 +51,6 @@ run_in_docker() {
             "test-multi-chat")
                 docker run --rm -v "$(pwd):/usr/src/app" -w /usr/src/app node:24-slim node scripts/test-multi-chat.js
                 ;;
-            "pet-examples")
-                docker run --rm -v "$(pwd):/usr/src/app" -w /usr/src/app node:24-slim node scripts/pet-examples.js
-                ;;
             *)
                 echo "❌ Comando no reconocido: $cmd"
                 exit 1
@@ -75,7 +69,6 @@ show_help() {
     echo "Comandos disponibles:"
     echo "  migrate     - Inicializar base de datos"
     echo "  test-setup  - Ejecutar pruebas de configuración"
-    echo "  test-pets   - Ejecutar pruebas de mascotas"
     echo "  test-conversation - Ejecutar pruebas de conversación"
     echo "  test-security - Ejecutar pruebas de seguridad"
     echo "  test-audio  - Ejecutar pruebas de audio"
@@ -84,7 +77,6 @@ show_help() {
     echo "  test-multimodal - Ejecutar pruebas multimodales completas"
     echo "  test-user-validation - Ejecutar pruebas de validación de usuarios"
     echo "  test-multi-chat - Ejecutar pruebas de múltiples chats"
-    echo "  pet-examples- Ejecutar ejemplos de mascotas"
     echo "  docker-build- Construir imagen Docker"
     echo "  docker-up   - Levantar contenedor Docker"
     echo "  docker-down - Detener contenedor Docker"
@@ -175,9 +167,6 @@ case "$1" in
     "test-setup")
         run_in_docker "test-setup"
         ;;
-            "test-pets")
-            run_in_docker "test-pets"
-            ;;
         "test-conversation")
             run_in_docker "test-conversation"
             ;;
@@ -202,9 +191,6 @@ case "$1" in
         "test-multi-chat")
             run_in_docker "test-multi-chat"
             ;;
-        "pet-examples")
-        run_in_docker "pet-examples"
-        ;;
     "docker-build")
         echo "🐳 Construyendo imagen Docker..."
         docker-compose build

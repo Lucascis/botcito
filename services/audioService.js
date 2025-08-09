@@ -1,19 +1,15 @@
-const OpenAI = require('openai');
+const { openaiClient } = require('./openaiClient');
 const fs = require('fs');
-const path = require('path');
 const logger = require('../utils/logger');
+const { sanitizeText } = require('../utils/sanitizer');
+const { MAX_AUDIO_MB } = require('../utils/constants');
+const FileStorageService = require('./storage/FileStorageService');
 
 class AudioService {
   constructor() {
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-    
-    // Crear directorio temporal si no existe
-    this.tempDir = path.join(__dirname, '../temp');
-    if (!fs.existsSync(this.tempDir)) {
-      fs.mkdirSync(this.tempDir, { recursive: true });
-    }
+    this.storage = new FileStorageService();
+    // Compatibilidad con tests que verifican existencia de cliente
+    this.openai = openaiClient;
   }
 
   /**
@@ -32,7 +28,7 @@ class AudioService {
         return null;
       }
 
-      const transcription = await this.openai.audio.transcriptions.create({
+      const transcription = await openaiClient.audioTranscriptionsCreate({
         file: fs.createReadStream(audioPath),
         model: "whisper-1",
         language: language,
@@ -40,8 +36,9 @@ class AudioService {
         temperature: 0.0 // Para mayor precisión
       });
 
-      logger.info(`Audio transcrito exitosamente: "${transcription.substring(0, 100)}..."`);
-      return transcription.trim();
+      const text = sanitizeText(String(transcription || ''));
+      logger.info(`Audio transcrito exitosamente: "${text.substring(0, 100)}..."`);
+      return text || null;
 
     } catch (error) {
       logger.error('Error transcribiendo audio:', error);
@@ -57,16 +54,18 @@ class AudioService {
    */
   async saveAudioFile(media, fromNumber) {
     try {
-      // Generar nombre único para el archivo
-      const timestamp = Date.now();
+      // Validar tamaño antes de guardar
+      const sizeCheck = this.checkAudioSize(media);
+      if (!sizeCheck.isValid) {
+        throw new Error(`Audio muy grande: ${sizeCheck.sizeMB}MB > ${sizeCheck.maxSizeMB}MB`);
+      }
       const extension = this.getAudioExtension(media.mimetype);
-      const fileName = `audio_${fromNumber.replace(/\D/g, '')}_${timestamp}.${extension}`;
-      const filePath = path.join(this.tempDir, fileName);
-
-      // Guardar archivo desde base64
-      fs.writeFileSync(filePath, media.data, 'base64');
-      
-      logger.info(`Archivo de audio guardado: ${filePath}`);
+      const filePath = this.storage.saveBase64File({
+        base64Data: media.data,
+        fromId: fromNumber,
+        prefix: 'audio_',
+        extension
+      });
       return filePath;
 
     } catch (error) {
@@ -100,18 +99,28 @@ class AudioService {
   }
 
   /**
+   * Verifica el tamaño máximo permitido del audio
+   * @param {Object} media - Objeto media con data base64
+   * @returns {{isValid:boolean,size:number,maxSize:number,sizeMB:string,maxSizeMB:number}}
+   */
+  checkAudioSize(media) {
+    const maxSize = MAX_AUDIO_MB * 1024 * 1024; // configurable
+    const size = Buffer.byteLength(media?.data || '', 'base64');
+    return {
+      isValid: size <= maxSize,
+      size,
+      maxSize,
+      sizeMB: (size / (1024 * 1024)).toFixed(2),
+      maxSizeMB: (maxSize / (1024 * 1024))
+    };
+  }
+
+  /**
    * Limpia archivo temporal
    * @param {string} filePath - Ruta del archivo a eliminar
    */
   cleanupFile(filePath) {
-    try {
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        logger.debug(`Archivo temporal eliminado: ${filePath}`);
-      }
-    } catch (error) {
-      logger.warn(`Error eliminando archivo temporal: ${error.message}`);
-    }
+    this.storage.cleanupFile(filePath);
   }
 
   /**
@@ -144,19 +153,18 @@ class AudioService {
    */
   getStats() {
     try {
-      const tempFiles = fs.readdirSync(this.tempDir).filter(file => 
-        file.startsWith('audio_')
-      );
+      const tempDir = this.storage.getTempDir();
+      const tempFiles = fs.readdirSync(tempDir).filter(file => file.startsWith('audio_'));
       
       return {
         tempFiles: tempFiles.length,
-        tempDir: this.tempDir,
+        tempDir,
         isWorking: true
       };
     } catch (error) {
       return {
         tempFiles: 0,
-        tempDir: this.tempDir,
+        tempDir: this.storage.getTempDir(),
         isWorking: false,
         error: error.message
       };

@@ -15,7 +15,7 @@ async function testDeactivationRegex() {
       'exit chat',
       'hola como estas',
       'buscar información',
-      'crear mascota'
+      'crear evento'
     ];
     
     const regex = /\b(desactivar|detener|salir|stop|exit)\s*(conversaci[oó]n|bot|chat)\b/i;

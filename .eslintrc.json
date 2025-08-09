@@ -1,0 +1,18 @@
+{
+  "env": { "node": true, "es2022": true },
+  "parserOptions": { "ecmaVersion": 2022, "sourceType": "script" },
+  "plugins": ["security"],
+  "extends": ["eslint:recommended"],
+  "overrides": [
+    {
+      "files": ["**/*.js"],
+      "rules": {
+        "no-console": ["warn", { "allow": ["error"] }],
+        "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+        "security/detect-object-injection": "off"
+      }
+    }
+  ]
+}
+
+

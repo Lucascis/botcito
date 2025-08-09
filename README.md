@@ -8,8 +8,7 @@
 - **Multi-usuario**: Soporte para múltiples usuarios con contextos independientes
 - **Integración WhatsApp**: Canal principal de comunicación con conversaciones continuas
 - **Búsqueda Web**: Capacidad de búsqueda en internet mediante OpenAI
-- **Mascotas Virtuales**: Sistema de IA con personalidades configurables en lenguaje natural
-- **Persistencia**: Base de datos SQLite para usuarios, contextos y mascotas
+ 
 - **Seguridad Avanzada**: Protección contra loops infinitos, rate limiting y validación robusta
 - **Arquitectura Escalable**: Preparada para múltiples canales y servicios
 
@@ -46,9 +45,6 @@
 - Estadísticas de uso por usuario
 - Sistema de permisos preparado
 
-### (Removido) Mascotas Virtuales 🐾
-Esta funcionalidad fue eliminada para simplificar el núcleo y mejorar seguridad. El sistema está listo para integrarse con nuevos módulos de negocio de forma escalable.
-
 ### Integración WhatsApp
 - **Conversaciones continuas**: No requiere prefijo después del comando inicial
 - **Protección anti-loops**: Distingue entre mensajes del usuario y respuestas del bot
@@ -69,6 +65,7 @@ Esta funcionalidad fue eliminada para simplificar el núcleo y mejorar seguridad
 
 - Docker ≥ 20.x y Docker Compose ≥ 1.29  
 - Node.js 18.x (solo si ejecutas localmente)  
+- Chromium disponible en contenedor (configurado automáticamente)  
 - Cuenta de OpenAI con acceso a Responses API (modelo `gpt-4o` + `web_search_preview`)  
 - Número(s) de WhatsApp autorizados (opcional)  
 
@@ -86,13 +83,15 @@ Esta funcionalidad fue eliminada para simplificar el núcleo y mejorar seguridad
 2. Configura variables de entorno  
    
        cp env.example .env  
-       (Editar `.env` con tus valores:  
+        (Editar `.env` con tus valores:  
          - OPENAI_API_KEY  
          - OPENAI_ORGANIZATION_ID (opcional)  
          - ALLOWED_NUMBERS (opcional)  
          - BOT_PREFIX  
          - LOG_LEVEL  
-       )  
+         - OPENAI_TIMEOUT_MS / OPENAI_MAX_RETRIES  
+         - CORS_ORIGIN (opcional)  
+        )  
 
 3. Ejecuta la configuración completa  
    
@@ -121,7 +120,8 @@ Esta funcionalidad fue eliminada para simplificar el núcleo y mejorar seguridad
        docker-compose up -d --build  
        docker-compose logs -f app  
    
-   Escanea el QR que aparece para autenticar WhatsApp Web.
+    Escanea el QR que aparece para autenticar WhatsApp Web.
+    Si Puppeteer requiere ruta específica, el contenedor define `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium`.
 
 ---
 
@@ -138,6 +138,32 @@ Esta funcionalidad fue eliminada para simplificar el núcleo y mejorar seguridad
 | `LOG_LEVEL` | Nivel de logging | No | `info` |
 | `PORT` | Puerto del servidor | No | `3000` |
 | `DB_PATH` | Ruta de la base de datos | No | `./data/users.db` |
+| `TEMP_DIR` | Directorio temporal para media | No | `/tmp/botcito` |
+| `OPENAI_TIMEOUT_MS` | Timeout OpenAI en ms | No | `30000` |
+| `OPENAI_MAX_RETRIES` | Reintentos OpenAI | No | `3` |
+| `PUPPETEER_EXECUTABLE_PATH` | Ruta de Chromium | No | `/usr/bin/chromium` |
+| `OPENAI_TIMEOUT_MS` | Timeout de llamadas a OpenAI | No | `30000` |
+| `OPENAI_MAX_RETRIES` | Reintentos de llamadas a OpenAI | No | `3` |
+| `TEMP_DIR` | Directorio temporal para media | No | `/tmp/botcito` |
+| `RATE_LIMIT_PER_MINUTE` | Mensajes por minuto por usuario | No | `10` |
+| `MAX_TEXT_CHARS` | Longitud máxima de texto | No | `4000` |
+| `HISTORY_LEN` | Mensajes guardados en contexto | No | `20` |
+| `MODEL_SELECTION_STRATEGY` | Estrategia de modelos (`balanced` `cost_optimized` `performance_optimized`) | No | `balanced` |
+| `WHATSAPP_FORMAT_ENHANCE` | Mejorar formato de texto | No | `true` |
+| `WHATSAPP_ADD_SEPARATORS` | Separadores visuales en respuestas | No | `false` |
+| `OPENAI_TEXT_TEMPERATURE` | Temperatura por defecto (texto) | No | `0.7` |
+| `OPENAI_TEXT_MAX_TOKENS` | Máx. tokens por defecto (texto) | No | `800` |
+| `OPENAI_TEXT_TOP_P` | Top-p | No | `1` |
+| `OPENAI_TEXT_PRESENCE_PENALTY` | Presencia | No | `0` |
+| `OPENAI_TEXT_FREQUENCY_PENALTY` | Frecuencia | No | `0` |
+| `OPENAI_IMAGE_TEMPERATURE` | Temperatura por defecto (imagen) | No | `0.7` |
+| `OPENAI_IMAGE_MAX_TOKENS` | Máx. tokens por defecto (imagen) | No | `600` |
+
+### Limpieza de temporales
+- Se ejecuta al inicio y cada 30 minutos (cron `TEMP_CLEAN_CRON`) para borrar archivos en `TEMP_DIR` más antiguos que `TEMP_MAX_AGE_MS` (6h).
+
+### Componentes legacy
+Se eliminaron `controllers/messageController.js` y `services/openaiService.js` para consolidar el flujo oficial en `WhatsAppService` + `OrchestratorService` + `openaiClient` centralizado.
 
 ### Ejemplo de `.env`:
 ```
@@ -170,31 +196,7 @@ Busca el clima en Buenos Aires hoy
 desactivar conversación
 ```
 
-### Comandos de Mascotas Virtuales
-
-#### Crear mascotas con descripción natural:
-```
-#bot crear mascota Luna gato "curiosa y juguetona, le gusta explorar por la casa, su juguete favorito es un ratón de peluche rojo, tiene energía muy alta y le encanta dormir en lugares altos como estantes"
-```
-
-#### Configurar mascotas en lenguaje natural:
-```
-#bot configurar mascota 1 "ahora también le gusta jugar con pelotas de colores brillantes, su comida favorita es atún fresco, aprendió a abrir puertas y es muy cariñosa con los niños pequeños"
-```
-
-#### Gestionar mascotas:
-```
-#bot listar mascotas
-#bot activar mascota 1
-#bot estadísticas mascotas
-```
-
-#### Interactuar con mascotas específicas:
-```
-#bot @1 ¡Hola Luna! ¿Cómo estás hoy?
-#bot @2 Max, ¿quieres jugar con la pelota?
-#bot @1 cuéntame sobre tu juguete favorito
-```
+ 
 
 ### Funciones Especiales
 
@@ -212,7 +214,22 @@ El bot puede responder a mensajes que te envías a ti mismo, distinguiendo clara
 ### API Endpoints
 
 - `GET /health` - Estado del servicio
-- `GET /stats` - Estadísticas de usuarios y mascotas
+- `GET /ready` - Readiness (WhatsApp listo + DB)
+- `GET /metrics` - Métricas Prometheus (si `prom-client` está disponible)
+  - Contadores: mensajes recibidos/bloqueados, errores, llamadas a OpenAI
+  - Histogramas: duración de llamadas a OpenAI
+  - Resultados por handler: `bot_handler_results_total{handler="text|audio|image|mixed",result="success|error"}`
+### Parámetros de respuesta del bot (configuración y overrides)
+
+- Defaults de OpenAI para texto e imagen vienen de `.env` y se validan con `envalid`:
+  - Texto: `OPENAI_TEXT_TEMPERATURE`, `OPENAI_TEXT_MAX_TOKENS`, `OPENAI_TEXT_TOP_P`, `OPENAI_TEXT_PRESENCE_PENALTY`, `OPENAI_TEXT_FREQUENCY_PENALTY`.
+  - Imagen: `OPENAI_IMAGE_TEMPERATURE`, `OPENAI_IMAGE_MAX_TOKENS`.
+- El orquestador aplica esos defaults y permite overrides por invocación al llamar internamente:
+  - `OrchestratorService.callOpenAI(params, contentType, options)` fusiona `{...defaults, ...params}`; cualquier parámetro pasado en `params` tiene prioridad.
+  - Ej.: para subir `temperature` en una llamada concreta, pasar `params = { messages, temperature: 0.9 }`.
+- Formato de salida de WhatsApp es configurable vía `.env`:
+  - `WHATSAPP_FORMAT_ENHANCE=true|false`, `WHATSAPP_ADD_SEPARATORS=true|false`.
+- `GET /stats` - Estadísticas de usuarios
 - `GET /conversations` - Lista de conversaciones activas
 
 ---
@@ -230,15 +247,13 @@ secretario-virtual/
 ├── models/
 │   ├── user/
 │   │   └── User.js       ← Modelo de usuarios
-│   └── pet/
-│       └── VirtualPet.js ← Modelo de mascotas virtuales
+ 
 ├── services/
 │   ├── orchestrator/
 │   │   └── OrchestratorService.js ← Orquestador IA
-│   ├── pet/
-│   │   └── PetService.js ← Servicio de mascotas
+ 
 │   ├── whatsappService.js ← Servicio WhatsApp
-│   └── openaiService.js   ← Servicio OpenAI (legacy)
+ 
 ├── integrations/
 │   └── whatsapp/
 │       └── client.js      ← Cliente WhatsApp con anti-loops
@@ -250,10 +265,8 @@ secretario-virtual/
 ├── scripts/
 │   ├── migrate.js        ← Script de migración
 │   ├── test-setup.js     ← Pruebas de configuración
-│   ├── test-pets.js      ← Pruebas de mascotas
 │   ├── test-conversation.js ← Pruebas de conversación
 │   ├── test-security.js  ← Pruebas de seguridad
-│   └── pet-examples.js   ← Ejemplos de mascotas
 ├── dev-setup.sh           ← Script de configuración WSL
 ├── docker-run.sh          ← Script de ejecución Docker
 ├── WSL_SETUP.md          ← Documentación WSL
@@ -275,7 +288,6 @@ secretario-virtual/
 | `npm run test`   | Ejecuta tests                           |
 | `npm run migrate`| Inicializa base de datos                |
 | `npm run test-setup` | Pruebas de configuración básica        |
-| `npm run test-pets` | Pruebas de mascotas virtuales          |
 | `npm run test-conversation` | Pruebas de conversación continua       |
 | `npm run test-security` | Pruebas de seguridad anti-loops        |
 | `npm run pet-examples` | Ejemplos de mascotas virtuales         |
@@ -286,7 +298,6 @@ secretario-virtual/
 | `./dev-setup.sh full-setup` | Configuración completa automática      |
 | `./dev-setup.sh migrate` | Inicializa BD (WSL)                    |
 | `./dev-setup.sh test-setup` | Pruebas de configuración (WSL)         |
-| `./dev-setup.sh test-pets` | Pruebas mascotas (WSL)                |
 | `./dev-setup.sh test-conversation` | Pruebas conversación (WSL)             |
 | `./dev-setup.sh test-security` | Pruebas seguridad (WSL)               |
 | `./dev-setup.sh docker-build` | Construir imagen Docker                |
@@ -298,7 +309,6 @@ secretario-virtual/
 |------------------|-----------------------------------------|
 | `./docker-run.sh migrate` | Inicializa BD (Docker)                 |
 | `./docker-run.sh test-setup` | Pruebas configuración (Docker)         |
-| `./docker-run.sh test-pets` | Pruebas mascotas (Docker)             |
 | `./docker-run.sh test-conversation` | Pruebas conversación (Docker)          |
 | `./docker-run.sh test-security` | Pruebas seguridad (Docker)            |
 | `./docker-run.sh shell` | Shell interactivo en contenedor       |
@@ -356,19 +366,56 @@ Estado del servicio
 }
 ```
 
+### GET /ready
+Readiness del servicio (WhatsApp listo, DB accesible, breaker de OpenAI cerrado)
+```json
+{
+  "ready": true,
+  "users": 12,
+  "openaiBreakerOpen": false
+}
+```
+
+### GET /metrics
+Métricas Prometheus (si `prom-client` está disponible)
+- Contadores: mensajes recibidos/bloqueados, errores, llamadas a OpenAI
+- Histogramas: duración de llamadas a OpenAI
+- Gauges: `openai_breaker_open`, `bot_active_conversations`
+
+---
+
+## 🧭 Operación
+
+- Backups: realizar copia del archivo SQLite en `data/users.db` (volumen `user_data`). Sugerido cron externo o job en CI con retención (evitar backup en caliente si hay escrituras intensas).
+- Logs: en producción se generan `logs/app-YYYY-MM-DD.log` con rotación diaria y compresión. Ajustable por `LOG_LEVEL`. En desarrollo, salida en consola legible.
+- Métricas: `GET /metrics` expone métricas Prometheus (contadores, histogramas y gauges). Alertar si `openai_breaker_open=1` sostenido o `bot_active_conversations` se mantiene en 0 en horario hábil.
+
+### Ejemplos de alertas (PromQL)
+- Breaker OpenAI abierto por 5 minutos:
+  - `max_over_time(openai_breaker_open[5m]) == 1`
+- Conversaciones activas en 0 por 10 minutos (horario laboral):
+  - `avg_over_time(bot_active_conversations[10m]) == 0`
+
+### Dashboards y Prometheus
+
+- Archivos de ejemplo:
+  - `monitoring/grafana/dashboards/secretario-virtual-overview.json`
+  - `monitoring/prometheus.yml`
+
+- Uso rápido:
+  1. Prometheus: editar `monitoring/prometheus.yml` si no usas Docker Desktop; reemplazar `host.docker.internal` por el host correcto.
+  2. Iniciar Prometheus:
+     - `docker run -p 9090:9090 -v $(pwd)/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml prom/prometheus`
+  3. Importar dashboard en Grafana: importar el JSON desde `monitoring/grafana/dashboards/secretario-virtual-overview.json` y seleccionar tu datasource Prometheus.
+
 ### GET /stats
-Estadísticas completas de usuarios y mascotas
+Estadísticas de usuarios
 ```json
 {
   "users": {
     "totalUsers": 15,
     "activeUsers": 12,
     "recentUsers": 8
-  },
-  "pets": {
-    "totalPets": 23,
-    "activePets": 20,
-    "avgPetsPerUser": 1.5
   },
   "system": {
     "uptime": "2 días, 3 horas",
@@ -395,8 +442,6 @@ Lista de conversaciones activas
 ## 🔮 Próximas mejoras
 
 ### ✅ Completadas (v3.0)
-- [x] Mascotas virtuales con personalidades únicas
-- [x] Configuración de mascotas en lenguaje natural
 - [x] Conversaciones continuas sin prefijo repetido
 - [x] Protección anti-loops infinitos
 - [x] Rate limiting por usuario
@@ -416,8 +461,7 @@ Lista de conversaciones activas
 - [ ] **Interfaz web de administración**: Panel de control visual
 - [ ] **Soporte multimedia**: Procesamiento de imágenes y audio
 - [ ] **Integración con streaming**: Control de servicios multimedia
-- [ ] **Evolución de mascotas**: Aprendizaje basado en interacciones
-- [ ] **Mascotas sociales**: Interacciones entre mascotas diferentes
+ 
 - [ ] **Base de datos distribuida**: Soporte para múltiples nodos
 - [ ] **API GraphQL**: Interface moderna para integraciones
 - [ ] **Webhooks configurables**: Notificaciones a servicios externos
@@ -476,14 +520,17 @@ Ejecuta todas las pruebas para validar el funcionamiento:
 # Configuración básica
 ./docker-run.sh test-setup
 
-# Mascotas virtuales
-./docker-run.sh test-pets
-
 # Conversaciones continuas
 ./docker-run.sh test-conversation
 
 # Seguridad anti-loops
 ./docker-run.sh test-security
+
+# Endpoints (smoke)
+DISABLE_WHATSAPP=true OPENAI_API_KEY=dummy node index.js & APP_PID=$! && sleep 2 && node scripts/test-endpoints.js && kill $APP_PID
+
+# Conectividad real a OpenAI (requiere API key válida en .env o env)
+npm run test-openai
 ```
 
 ---

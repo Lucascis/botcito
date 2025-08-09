@@ -1,10 +1,13 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const logger = require('../../utils/logger');
+const { dbPath: configuredDbPath } = require('../../config');
 
 class User {
   constructor() {
-    this.dbPath = path.join(__dirname, '../../data/users.db');
+    this.dbPath = path.isAbsolute(configuredDbPath)
+      ? configuredDbPath
+      : path.resolve(path.join(__dirname, '../../'), configuredDbPath);
     this.initDatabase();
   }
 

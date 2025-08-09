@@ -1,18 +1,20 @@
-const OpenAI = require('openai');
+const { openaiClient } = require('../openaiClient');
 const logger = require('../../utils/logger');
-const { openaiKey, openaiOrgId } = require('../../config');
 const User = require('../../models/user/User');
 const ModelService = require('../modelService');
 const WhatsAppFormatter = require('../../utils/whatsappFormatter');
+const { HISTORY_LEN } = require('../../utils/constants');
+const cfg = require('../../config');
+const { shouldDeactivate } = require('../../utils/commands');
 
 class OrchestratorService {
   constructor() {
-    this.client = new OpenAI({
-      apiKey: openaiKey,
-      organization: openaiOrgId || undefined
-    });
     this.userModel = new User();
     this.modelService = new ModelService();
+    // Ajustar estrategia por defecto desde env
+    if (cfg?.modelSelectionStrategy && this.modelService?.setStrategy) {
+      this.modelService.setStrategy(cfg.modelSelectionStrategy);
+    }
   }
 
   /**
@@ -28,14 +30,17 @@ class OrchestratorService {
       const optimalModel = this.modelService.selectOptimalModel(contentType, options);
       
       // Preparar parámetros con el modelo seleccionado
+      const defaults = cfg?.defaults || {};
+      const defaultsForType = contentType === 'image' || contentType === 'mixed' ? (defaults.image || {}) : (defaults.text || {});
       const callParams = {
-        ...params,
-        model: optimalModel
+        model: optimalModel,
+        ...defaultsForType,
+        ...params
       };
 
       logger.debug(`Llamada a OpenAI con modelo: ${optimalModel} para tipo: ${contentType}`);
       
-      return await this.client.chat.completions.create(callParams);
+      return await openaiClient.chatCompletionsCreate(callParams);
     } catch (error) {
       logger.error('Error en llamada optimizada a OpenAI:', error);
       throw error;
@@ -68,8 +73,8 @@ class OrchestratorService {
       // Flag para desactivación por intención del modelo
       let shouldDeactivateFlag = false;
 
-      // DETECCIÓN DIRECTA de desactivación de conversación
-      const shouldDeactivateNow = /\b(desactivar|detener|salir|stop|exit|chau)\s*(conversaci[oó]n|bot|chat)\b/i.test(text);
+      // DETECCIÓN DIRECTA de desactivación de conversación (regex unificada)
+      const shouldDeactivateNow = shouldDeactivate(text);
       logger.info(`🔍 Texto recibido: "${text}"`);
       logger.info(`🔍 Regex test result: ${shouldDeactivateNow}`);
       
@@ -173,7 +178,7 @@ Comandos disponibles:
           const { query } = parsedArgs;
           
           // Usar Responses API con web_search_preview
-          const searchRes = await this.client.responses.create({
+          const searchRes = await openaiClient.responsesCreate({
             model: 'gpt-4o',
             tools: [{ type: 'web_search_preview' }],
             input: query
@@ -200,7 +205,7 @@ Comandos disponibles:
           });
           
           // Segunda llamada con resultados de búsqueda
-          resp = await this.callOpenAI({
+            resp = await this.callOpenAI({
             messages
           }, 'text', { complexity });
           choice = resp.choices[0];
@@ -235,7 +240,7 @@ Comandos disponibles:
 
       // Obtener respuesta final
       let reply = choice.message.content?.trim() || '';
-      let shouldDeactivate = shouldDeactivateFlag;
+      let shouldDeactivateFinal = shouldDeactivateFlag;
 
       // Ya no necesitamos verificar funciones porque la desactivación se maneja arriba
 
@@ -251,13 +256,13 @@ Comandos disponibles:
         { role: 'assistant', content: reply }
       );
 
-      // Mantener solo los últimos 20 mensajes
-      const trimmedHistory = newHistory.slice(-20);
+      // Mantener solo los últimos HISTORY_LEN mensajes
+      const trimmedHistory = newHistory.slice(-HISTORY_LEN);
       await this.userModel.saveContext(user.id, channel, trimmedHistory);
 
       return {
         reply,
-        shouldDeactivate,
+        shouldDeactivate: shouldDeactivateFinal,
         userId: user.id,
         user: user
       };

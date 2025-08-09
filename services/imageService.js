@@ -1,19 +1,16 @@
-const OpenAI = require('openai');
+const { openaiClient } = require('./openaiClient');
 const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
+const { MAX_IMAGE_MB } = require('../utils/constants');
+const cfg = require('../config');
+const FileStorageService = require('./storage/FileStorageService');
 
 class ImageService {
   constructor() {
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-    
-    // Crear directorio temporal si no existe
-    this.tempDir = path.join(__dirname, '../temp');
-    if (!fs.existsSync(this.tempDir)) {
-      fs.mkdirSync(this.tempDir, { recursive: true });
-    }
+    this.storage = new FileStorageService();
+    // Compatibilidad con tests que verifican existencia de cliente
+    this.openai = openaiClient;
   }
 
   /**
@@ -49,7 +46,8 @@ class ImageService {
         finalPrompt = prompt;
       }
 
-      const response = await this.openai.chat.completions.create({
+      const response = await openaiClient.chatCompletionsCreate({
+        // modelo se establece en Orchestrator/ModelService cuando corresponda; aquí fijamos gpt-4o explícitamente para visión
         model: "gpt-4o",
         messages: [
           {
@@ -69,11 +67,11 @@ class ImageService {
             ]
           }
         ],
-        max_tokens: 1000,
-        temperature: 0.7
+        max_tokens: cfg?.defaults?.image?.max_tokens ?? 1000,
+        temperature: cfg?.defaults?.image?.temperature ?? 0.7
       });
 
-      const analysis = response.choices[0].message.content;
+      const analysis = response.choices?.[0]?.message?.content || '';
       logger.info(`Imagen analizada exitosamente: "${analysis.substring(0, 100)}..."`);
       return analysis.trim();
 
@@ -91,16 +89,13 @@ class ImageService {
    */
   async saveImageFile(media, fromNumber) {
     try {
-      // Generar nombre único para el archivo
-      const timestamp = Date.now();
       const extension = this.getImageExtension(media.mimetype);
-      const fileName = `image_${fromNumber.replace(/\D/g, '')}_${timestamp}.${extension}`;
-      const filePath = path.join(this.tempDir, fileName);
-
-      // Guardar archivo desde base64
-      fs.writeFileSync(filePath, media.data, 'base64');
-      
-      logger.info(`Archivo de imagen guardado: ${filePath}`);
+      const filePath = this.storage.saveBase64File({
+        base64Data: media.data,
+        fromId: fromNumber,
+        prefix: 'image_',
+        extension
+      });
       return filePath;
 
     } catch (error) {
@@ -149,14 +144,7 @@ class ImageService {
    * @param {string} filePath - Ruta del archivo a eliminar
    */
   cleanupFile(filePath) {
-    try {
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        logger.debug(`Archivo temporal eliminado: ${filePath}`);
-      }
-    } catch (error) {
-      logger.warn(`Error eliminando archivo temporal: ${error.message}`);
-    }
+    this.storage.cleanupFile(filePath);
   }
 
   /**
@@ -182,7 +170,7 @@ class ImageService {
    * @returns {Object} - {isValid: boolean, size: number, maxSize: number}
    */
   checkImageSize(media) {
-    const maxSize = 20 * 1024 * 1024; // 20MB límite
+    const maxSize = MAX_IMAGE_MB * 1024 * 1024; // límite configurable
     const imageSize = Buffer.byteLength(media.data, 'base64');
     
     return {
@@ -225,13 +213,11 @@ Sé conversacional y útil en tu respuesta.
    */
   getStats() {
     try {
-      const tempFiles = fs.readdirSync(this.tempDir).filter(file => 
-        file.startsWith('image_')
-      );
-      
+      const tempDir = this.storage.getTempDir();
+      const tempFiles = fs.readdirSync(tempDir).filter(file => file.startsWith('image_'));
       return {
         tempFiles: tempFiles.length,
-        tempDir: this.tempDir,
+        tempDir,
         isWorking: true,
         supportedFormats: ['JPEG', 'PNG', 'WebP', 'GIF'],
         maxSizeMB: 20
@@ -239,7 +225,7 @@ Sé conversacional y útil en tu respuesta.
     } catch (error) {
       return {
         tempFiles: 0,
-        tempDir: this.tempDir,
+        tempDir: this.storage.getTempDir(),
         isWorking: false,
         error: error.message,
         supportedFormats: ['JPEG', 'PNG', 'WebP', 'GIF'],

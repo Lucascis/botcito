@@ -8,6 +8,7 @@ services:
     volumes:
       - session_data:/usr/src/app/session_data
       - user_data:/usr/src/app/data
+      - tmp_data:/tmp/botcito
     ports:
       - "3000:3000"
     security_opt:
@@ -17,8 +18,20 @@ services:
     cap_add:
       - SETUID
       - SETGID
+    read_only: true
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+    pids_limit: 100
     tmpfs:
-      - /tmp
+      - /tmp:rw,noexec,nosuid,nodev
+    environment:
+      - TEMP_DIR=/tmp/botcito
+      - OPENAI_TIMEOUT_MS=30000
+      - OPENAI_MAX_RETRIES=3
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
@@ -28,3 +41,4 @@ services:
 volumes:
   session_data:
   user_data:
+  tmp_data:

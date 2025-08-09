@@ -36,8 +36,8 @@ async function testSetup() {
     }
     logger.info('✅ Gestión de contexto funcionando correctamente');
     
-    // Probar orquestador (solo si hay API key configurada)
-    if (process.env.OPENAI_API_KEY) {
+    // Probar orquestador (solo si hay API key configurada y no se pide omitir llamadas reales)
+    if (process.env.OPENAI_API_KEY && String(process.env.SKIP_OPENAI_CALLS).toLowerCase() !== 'true') {
       logger.info('🤖 Probando orquestador...');
       const orchestrator = new OrchestratorService();
       

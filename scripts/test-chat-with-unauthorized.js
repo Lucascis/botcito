@@ -37,7 +37,7 @@ async function testChatWithUnauthorized() {
     
     // Verificar que detecta correctamente
     const expectedChatId = otherUnauthorizedNumber + '@c.us';
-    const expectedUserNumber = myAuthorizedNumber.replace(/[\s\+\-\(\)]/g, '');
+    const expectedUserNumber = myAuthorizedNumber.replace(/[\s()+-]/g, '');
     
     if (chatId === expectedChatId) {
       logger.info('✅ Chat ID correcto: bot responderá en la conversación con la otra persona');
@@ -58,8 +58,8 @@ async function testChatWithUnauthorized() {
     const allowedNumbers = [myAuthorizedNumber]; // Solo mi número está permitido
     
     const isAuthorized = allowedNumbers.some(allowed => {
-      const normalizedAllowed = allowed.replace(/[\s\+\-\(\)]/g, '');
-      const normalizedUser = userNumber.replace(/[\s\+\-\(\)]/g, '');
+      const normalizedAllowed = allowed.replace(/[\s+\-()]/g, '');
+      const normalizedUser = userNumber.replace(/[\s+\-()]/g, '');
       return normalizedUser === normalizedAllowed || 
              normalizedUser.includes(normalizedAllowed) ||
              normalizedAllowed.includes(normalizedUser);

@@ -16,6 +16,10 @@ RUN groupadd -r app && useradd -r -g app -d /usr/src/app -s /usr/sbin/nologin ap
 
 WORKDIR /usr/src/app
 
+# Evitar descarga de Chromium de puppeteer y fijar ruta del sistema
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
 # Copiar package.json y package-lock.json* e instalar dependencias
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev --no-audit --no-fund
@@ -30,6 +34,8 @@ RUN chown -R app:app /usr/src/app
 # Copiar y dar permisos al entrypoint
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+USER app
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node","index.js"]

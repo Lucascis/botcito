@@ -3,7 +3,13 @@ const OrchestratorService = require('./orchestrator/OrchestratorService');
 const AudioService = require('./audioService');
 const ImageService = require('./imageService');
 const logger = require('../utils/logger');
-const { botPrefix, allowedNumbers } = require('../config');
+const { botPrefix, allowedNumbers, whatsappFormatEnhance, whatsappAddSeparators } = require('../config');
+const { sanitizeText } = require('../utils/sanitizer');
+const { MAX_TEXT_CHARS, RATE_LIMIT_PER_MINUTE } = require('../utils/constants');
+const MessageRouter = require('./router/MessageRouter');
+const ChatSessionManager = require('./session/ChatSessionManager');
+const WhatsAppFormatter = require('../utils/whatsappFormatter');
+const { metrics } = require('../utils/metrics');
 
 /**
  * Servicio que envuelve la integración con WhatsApp y añade registros.
@@ -14,9 +20,10 @@ class WhatsAppService {
     this.orchestrator = new OrchestratorService();
     this.audioService = new AudioService();
     this.imageService = new ImageService();
-    this.activeConversations = new Map(); // Mantener conversaciones activas
-    this.rateLimiter = new Map(); // Rate limiting por usuario
-    this.maxMessagesPerMinute = 10; // Máximo 10 mensajes por minuto por usuario
+    this.session = new ChatSessionManager({ maxMessagesPerMinute: RATE_LIMIT_PER_MINUTE });
+    // Retrocompatibilidad para scripts que acceden directamente a estos Maps
+    this.activeConversations = this.session.activeConversations;
+    this.rateLimiter = this.session.rateLimiter;
   }
 
   /**
@@ -71,31 +78,20 @@ class WhatsAppService {
   getUserNumber(msg) {
     // SIEMPRE obtener el número del que ENVÍA el mensaje (from)
     // No importa si es fromMe=true o false, siempre queremos validar quién lo envía
-    const rawNumber = msg.from;
+    const rawNumber = msg && msg.from;
+    if (!rawNumber || typeof rawNumber !== 'string') return '';
     // Extraer solo el número, removiendo @c.us y otros sufijos, y normalizar
     const numberPart = rawNumber.split('@')[0];
     // Remover + y otros caracteres para normalizar
-    return numberPart.replace(/[\s\+\-\(\)]/g, '');
+    return numberPart.replace(/[\s()+-]/g, '');
   }
 
   checkRateLimit(userNumber) {
-    const now = Date.now();
-    const userLimits = this.rateLimiter.get(userNumber) || { messages: [], lastReset: now };
-    
-    // Limpiar mensajes más antiguos de 1 minuto
-    userLimits.messages = userLimits.messages.filter(time => now - time < 60000);
-    
-    // Verificar si excede el límite
-    if (userLimits.messages.length >= this.maxMessagesPerMinute) {
-      logger.warn(`Rate limit excedido para ${userNumber}: ${userLimits.messages.length} mensajes en el último minuto`);
-      return false;
+    const allowed = this.session.checkRateLimit(userNumber);
+    if (!allowed) {
+      logger.warn(`Rate limit excedido para ${userNumber}: mensaje bloqueado`);
     }
-    
-    // Agregar mensaje actual
-    userLimits.messages.push(now);
-    this.rateLimiter.set(userNumber, userLimits);
-    
-    return true;
+    return allowed;
   }
 
   /**
@@ -103,16 +99,7 @@ class WhatsAppService {
    * @param {Object} msg Mensaje de WhatsApp
    * @returns {string} Tipo de contenido: 'audio', 'image', 'text', 'mixed'
    */
-  detectMediaType(msg) {
-    const hasAudio = msg.hasMedia && (msg.type === 'audio' || msg.type === 'ptt');
-    const hasImage = msg.hasMedia && msg.type === 'image';
-    const hasText = msg.body && msg.body.trim();
-
-    if (hasAudio) return 'audio';
-    if (hasImage && hasText) return 'mixed';
-    if (hasImage) return 'image';
-    return 'text';
-  }
+  detectMediaType(msg) { return MessageRouter.detectMediaType(msg); }
 
   /**
    * Maneja mensajes de audio
@@ -126,14 +113,20 @@ class WhatsAppService {
 
     try {
       logger.info(`Mensaje de audio recibido de ${userNumber} en chat ${chatId}`);
+      if (metrics && typeof metrics.incMessageReceived === 'function') {
+        metrics.incMessageReceived('whatsapp', 'audio');
+      }
       
       // PRIMERO: Verificar si hay conversación activa EN ESTE CHAT
-      const isActive = this.activeConversations.get(chatId);
+      const isActive = this.session.isConversationActive(chatId);
       
       if (!isActive) {
         // Si no hay conversación activa EN ESTE CHAT, ignorar el audio completamente
         // No consumir tokens de OpenAI innecesariamente
         logger.debug(`Audio ignorado de ${userNumber} en chat ${chatId}: no hay conversación activa`);
+        if (metrics && typeof metrics.incMessageBlocked === 'function') {
+          metrics.incMessageBlocked('no_active_conversation');
+        }
         return;
       }
       
@@ -172,6 +165,9 @@ class WhatsAppService {
       // Enviar respuesta AL CHAT donde fue invocado
       if (result.reply) {
         await this.sendMessage(chatId, result.reply);
+        if (metrics && typeof metrics.incHandlerResult === 'function') {
+          metrics.incHandlerResult('audio', 'success');
+        }
         logger.info(`Respuesta de audio enviada al chat ${chatId}`);
         
         // Verificar si debe desactivar conversación (respuesta del orquestador)
@@ -182,7 +178,13 @@ class WhatsAppService {
 
     } catch (error) {
       logger.error('Error procesando audio:', error);
-      await this.sendMessage(chatId, '❌ Error procesando el audio. Intenta de nuevo.');
+      if (metrics && typeof metrics.incHandlerResult === 'function') {
+        metrics.incHandlerResult('audio', 'error');
+      }
+      if (metrics && typeof metrics.incError === 'function') {
+        metrics.incError('audio');
+      }
+      await this.sendMessage(chatId, WhatsAppFormatter.formatError('Error de audio', 'Ocurrió un problema procesando tu audio. Intenta nuevamente.'));
     } finally {
       // Limpiar archivo temporal
       if (audioPath) {
@@ -201,23 +203,32 @@ class WhatsAppService {
 
     try {
       logger.info(`Procesando mensaje de imagen de ${from}`);
+      if (metrics && typeof metrics.incMessageReceived === 'function') {
+        metrics.incMessageReceived('whatsapp', 'image');
+      }
 
       // Solo usuarios autorizados pueden activar o interactuar
       if (allowedNumbers && allowedNumbers.length > 0) {
-        const normalizedAllowed = allowedNumbers.map(n => n.replace(/[\s\+\-\(\)]/g, ''));
-        const normalizedFrom = from.split('@')[0].replace(/[\s\+\-\(\)]/g, '');
+      const normalizedAllowed = allowedNumbers.map(n => n.replace(/[\s+\-()]/g, ''));
+        const normalizedFrom = from.split('@')[0].replace(/[\s()+-]/g, '');
         const isAllowed = normalizedAllowed.some(n => n === normalizedFrom || normalizedFrom.includes(n) || n.includes(normalizedFrom));
         if (!isAllowed) {
           logger.warn(`Imagen de número no autorizado: ${from}`);
+          if (metrics && typeof metrics.incMessageBlocked === 'function') {
+            metrics.incMessageBlocked('unauthorized');
+          }
           return; // Silencioso: no responder
         }
       }
 
       // Requiere conversación activa para procesar imágenes
       const chatId = this.getChatId(msg);
-      const isActive = this.activeConversations.get(chatId);
+      const isActive = this.session.isConversationActive(chatId);
       if (!isActive) {
         logger.debug(`Ignorando imagen en chat ${chatId}: no hay conversación activa`);
+        if (metrics && typeof metrics.incMessageBlocked === 'function') {
+          metrics.incMessageBlocked('no_active_conversation');
+        }
         return; // Silencioso
       }
 
@@ -244,14 +255,23 @@ class WhatsAppService {
         'whatsapp'
       );
 
-      if (result.reply) {
+        if (result.reply) {
         await this.sendMessage(chatId, result.reply);
+          if (metrics && typeof metrics.incHandlerResult === 'function') {
+            metrics.incHandlerResult('image', 'success');
+          }
         if (result.shouldDeactivate) this.deactivateConversation(chatId);
       }
 
     } catch (error) {
       logger.error('Error procesando imagen:', error);
-      await this.sendMessage(from, '❌ Error procesando la imagen. Intenta de nuevo.');
+      if (metrics && typeof metrics.incHandlerResult === 'function') {
+        metrics.incHandlerResult('image', 'error');
+      }
+      if (metrics && typeof metrics.incError === 'function') {
+        metrics.incError('image');
+      }
+      await this.sendMessage(from, WhatsAppFormatter.formatError('Error de imagen', 'Ocurrió un problema procesando tu imagen. Intenta nuevamente.'));
     } finally {
       // Limpiar archivo temporal
       if (imagePath) {
@@ -270,6 +290,9 @@ class WhatsAppService {
 
     try {
       logger.info(`Procesando mensaje mixto (imagen + texto) de ${from}`);
+      if (metrics && typeof metrics.incMessageReceived === 'function') {
+        metrics.incMessageReceived('whatsapp', 'mixed');
+      }
       
       // Descargar y guardar imagen
       const media = await msg.downloadMedia();
@@ -284,6 +307,9 @@ class WhatsAppService {
       const sizeCheck = this.imageService.checkImageSize(media);
       if (!sizeCheck.isValid) {
         await this.sendMessage(from, `❌ Imagen muy grande (${sizeCheck.sizeMB}MB). El límite es ${sizeCheck.maxSize / (1024 * 1024)}MB.`);
+        if (metrics && typeof metrics.incMessageBlocked === 'function') {
+          metrics.incMessageBlocked('image_too_large');
+        }
         return;
       }
       
@@ -302,7 +328,7 @@ class WhatsAppService {
       // Verificar si el texto contiene el prefijo del bot o si hay conversación activa
       const hasPrefix = body && body.toLowerCase().includes(botPrefix.toLowerCase());
       const chatId = this.getChatId(msg);
-      const isActive = this.activeConversations.get(chatId);
+      const isActive = this.session.isConversationActive(chatId);
       
       let textToProcess = body || '';
       
@@ -311,7 +337,7 @@ class WhatsAppService {
         textToProcess = body.replace(new RegExp(botPrefix, 'gi'), '').trim();
         
         // Activar conversación
-        this.activeConversations.set(chatId, true);
+        this.activateConversation(chatId);
         logger.info(`Conversación activada para ${chatId} via imagen+texto`);
       } else if (!isActive) {
         // Si no tiene conversación activa y no contiene el prefijo, mostrar análisis básico
@@ -336,6 +362,9 @@ class WhatsAppService {
       if (result.reply) {
         const response = `📷 "${body}"\n\n${result.reply}`;
         await this.sendMessage(chatId, response);
+        if (metrics && typeof metrics.incHandlerResult === 'function') {
+          metrics.incHandlerResult('mixed', 'success');
+        }
         logger.info(`Respuesta de mensaje mixto enviada a ${chatId}`);
         
         // Verificar si debe desactivar conversación (respuesta del orquestador)
@@ -346,7 +375,13 @@ class WhatsAppService {
 
     } catch (error) {
       logger.error('Error procesando mensaje mixto:', error);
-      await this.sendMessage(from, '❌ Error procesando la imagen con tu mensaje. Intenta de nuevo.');
+      if (metrics && typeof metrics.incHandlerResult === 'function') {
+        metrics.incHandlerResult('mixed', 'error');
+      }
+      if (metrics && typeof metrics.incError === 'function') {
+        metrics.incError('mixed');
+      }
+      await this.sendMessage(from, WhatsAppFormatter.formatError('Error en imagen + texto', 'No pude procesar la imagen con tu mensaje. Intenta nuevamente.'));
     } finally {
       // Limpiar archivo temporal
       if (imagePath) {
@@ -360,6 +395,29 @@ class WhatsAppService {
    * @param {Object} msg Mensaje de WhatsApp
    */
   async handleMessage(msg) {
+    // Validaciones tempranas fuera del try/catch para que los tests capten errores en mensajes inválidos
+    if (!msg || typeof msg !== 'object') {
+      throw new Error('INVALID_MESSAGE: object required');
+    }
+    const typeEarly = msg.type;
+    const hasMediaEarly = Boolean(msg.hasMedia);
+    const bodyEarly = msg.body;
+    const userNumberEarly = this.getUserNumber(msg);
+    if (!userNumberEarly) {
+      throw new Error('INVALID_MESSAGE: sender missing');
+    }
+    if ((typeEarly === 'image' || typeEarly === 'audio' || typeEarly === 'ptt') && !hasMediaEarly) {
+      throw new Error('INVALID_MESSAGE: media type without media');
+    }
+    if (typeof bodyEarly !== 'string') {
+      throw new Error('INVALID_MESSAGE: body must be string');
+    }
+    if (bodyEarly.length === 0) {
+      throw new Error('INVALID_MESSAGE: empty body');
+    }
+    if (bodyEarly.length > MAX_TEXT_CHARS) { // Límite de caracteres por mensaje
+      throw new Error('INVALID_MESSAGE: too long');
+    }
     try {
       const { body, timestamp, type } = msg;
       const chatId = this.getChatId(msg);
@@ -373,8 +431,8 @@ class WhatsAppService {
       // Autorización temprana (aplica a TODAS las rutas)
       if (allowedNumbers && allowedNumbers.length > 0) {
         const isAllowed = allowedNumbers.some(allowed => {
-          const normalizedAllowed = allowed.replace(/[\s\+\-\(\)]/g, '');
-          const normalizedUser = userNumber.replace(/[\s\+\-\(\)]/g, '');
+          const normalizedAllowed = allowed.replace(/[\s()+-]/g, '');
+          const normalizedUser = userNumber.replace(/[\s()+-]/g, '');
           return normalizedUser === normalizedAllowed || 
                  normalizedUser.includes(normalizedAllowed) ||
                  normalizedAllowed.includes(normalizedUser);
@@ -387,6 +445,9 @@ class WhatsAppService {
 
       // Detectar tipo de contenido y enrutar apropiadamente
       const mediaType = this.detectMediaType(msg);
+      if (metrics && typeof metrics.incMessageReceived === 'function') {
+        metrics.incMessageReceived('whatsapp', mediaType || 'unknown');
+      }
       
       switch (mediaType) {
         case 'audio':
@@ -404,28 +465,15 @@ class WhatsAppService {
           
         default:
           logger.warn(`Tipo de media no soportado: ${type}`);
-          await this.sendMessage(chatId, '❌ Tipo de mensaje no soportado.');
+          await this.sendMessage(chatId, WhatsAppFormatter.formatError('Mensaje no soportado', 'Este tipo de mensaje no es compatible. Envía texto, audio o imagen.'));
+          if (metrics && typeof metrics.incMessageBlocked === 'function') {
+            metrics.incMessageBlocked('unsupported_media');
+          }
           return;
       }
       
-      // Validaciones de seguridad para mensajes de texto
-      if (!userNumber || !body || typeof body !== 'string') {
-        logger.warn('Mensaje de texto inválido: faltan datos requeridos');
-        return;
-      }
-
-      // Sanitizar y validar contenido
-      const sanitizedBody = body.trim();
-      if (sanitizedBody.length === 0) {
-        logger.debug('Ignorando mensaje vacío');
-        return;
-      }
-
-      if (sanitizedBody.length > 4000) { // Límite de caracteres por mensaje
-        logger.warn(`Mensaje muy largo (${sanitizedBody.length} caracteres) de ${userNumber} en chat ${chatId}`);
-        await this.sendMessage(chatId, 'Lo siento, tu mensaje es muy largo. Por favor, envía mensajes más cortos.');
-        return;
-      }
+      // Sanitizar contenido (las validaciones duras se hicieron arriba)
+      const sanitizedBody = sanitizeText(body);
 
       // (Autorización ya verificada arriba)
 
@@ -437,17 +485,17 @@ class WhatsAppService {
       
       if (hasPrefix) {
         // Extraer el texto sin el prefijo
-        text = sanitizedBody.substring(botPrefix.length).trim();
+        text = sanitizeText(sanitizedBody.substring(botPrefix.length));
         if (!text) {
           return;
         }
         
         // Activar conversación para ESTE CHAT específico
-        this.activeConversations.set(chatId, true);
+        this.session.activateConversation(chatId);
         logger.info(`Conversación activada para chat ${chatId} por usuario ${userNumber}`);
       } else {
         // Verificar si hay conversación activa EN ESTE CHAT
-        const isActive = this.activeConversations.get(chatId);
+        const isActive = this.session.isConversationActive(chatId);
         if (!isActive) {
           // Si no tiene conversación activa EN ESTE CHAT, ignorar el mensaje
           return;
@@ -469,13 +517,22 @@ class WhatsAppService {
 
       // Enviar respuesta AL CHAT donde fue invocado
       if (result.reply) {
-        await this.sendMessage(chatId, result.reply);
+        const replyText = WhatsAppFormatter.truncateIfNeeded(
+          WhatsAppFormatter.formatMessage(result.reply, {
+            enhanceFormat: whatsappFormatEnhance !== false,
+            addSeparators: whatsappAddSeparators === true
+          })
+        );
+        await this.sendMessage(chatId, replyText);
+        if (metrics && typeof metrics.incHandlerResult === 'function') {
+          metrics.incHandlerResult('text', 'success');
+        }
         logger.info(`Respuesta enviada al chat ${chatId}`);
         
         // Verificar si debe desactivar conversación (respuesta del orquestador)
         if (result.shouldDeactivate) {
           logger.info(`🔴 Desactivando conversación para chat ${chatId}`);
-          this.deactivateConversation(chatId);
+          this.session.deactivateConversation(chatId);
         } else {
           logger.info(`🔵 No se desactiva conversación (shouldDeactivate = ${result.shouldDeactivate})`);
         }
@@ -483,11 +540,14 @@ class WhatsAppService {
 
     } catch (error) {
       logger.error('Error procesando mensaje de WhatsApp:', error);
+      if (metrics && typeof metrics.incHandlerResult === 'function') {
+        metrics.incHandlerResult('text', 'error');
+      }
       
       // Enviar mensaje de error al chat
       try {
         const chatId = this.getChatId(msg);
-        await this.sendMessage(chatId, 'Lo siento, hubo un error procesando tu mensaje. Inténtalo de nuevo.');
+      await this.sendMessage(chatId, WhatsAppFormatter.formatError('Error', 'Ocurrió un problema procesando tu mensaje. Intenta nuevamente.'));
       } catch (sendError) {
         logger.error('Error enviando mensaje de error:', sendError);
       }
@@ -501,7 +561,12 @@ class WhatsAppService {
    */
   async sendMessage(to, text) {
     try {
-      logger.debug(`Enviando mensaje a ${to}: "${text.substring(0, 100)}"`);
+      if (!to) {
+        logger.warn('sendMessage llamado sin destino (to)');
+        return;
+        }
+      const preview = typeof text === 'string' ? text.substring(0, 100) : '';
+      logger.debug(`Enviando mensaje a ${to}: "${preview}"`);
       await this.integration.sendMessage(to, text);
     } catch (err) {
       logger.error(`Error enviando mensaje a ${to}:`, err);
@@ -516,13 +581,16 @@ class WhatsAppService {
     const orchestratorStats = await this.orchestrator.getStats();
     const audioStats = this.audioService.getStats();
     const imageStats = this.imageService.getStats();
+    if (metrics && typeof metrics.setActiveConversationsCount === 'function') {
+      metrics.setActiveConversationsCount(this.session.getActiveConversations().length);
+    }
     
     return {
       ...orchestratorStats,
       audio: audioStats,
       image: imageStats,
-      activeConversations: this.activeConversations.size,
-      rateLimitedUsers: this.rateLimiter.size
+      activeConversations: this.session.getActiveConversations().length,
+      rateLimitedUsers: this.session.rateLimiter.size
     };
   }
 
@@ -530,7 +598,7 @@ class WhatsAppService {
    * Desactiva la conversación para un chat específico
    */
   deactivateConversation(chatId) {
-    this.activeConversations.delete(chatId);
+    this.session.deactivateConversation(chatId);
     logger.info(`Conversación desactivada para chat ${chatId}`);
   }
 
@@ -538,8 +606,12 @@ class WhatsAppService {
    * Obtiene el estado de las conversaciones activas
    */
   getActiveConversations() {
-    return Array.from(this.activeConversations.keys());
+    return this.session.getActiveConversations();
   }
+
+  // Helpers P1: manejo de TTL de conversaciones
+  activateConversation(chatId) { this.session.activateConversation(chatId); }
+  isConversationActive(chatId) { return this.session.isConversationActive(chatId); }
 }
 
 module.exports = WhatsAppService;

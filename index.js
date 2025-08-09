@@ -1,4 +1,6 @@
 require('dotenv').config();
+const { validateEnv } = require('./config/envSchema');
+const env = validateEnv(process.env);
 const App = require('./core/app');
 const logger = require('./utils/logger');
 
