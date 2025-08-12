@@ -8,6 +8,7 @@ node_modules/
 
 # Session data
 session_data/
+.wwebjs_cache/
 
 # Database
 data/

@@ -98,46 +98,32 @@ function isBreakerOpen() {
 }
 
 let client;
-let orgEnabled = Boolean(openaiOrgId);
 
 function createClient() {
+  const useOrgHeader = String(process.env.OPENAI_USE_ORG_HEADER || '').toLowerCase() === 'true';
+  const organization = useOrgHeader && openaiOrgId ? openaiOrgId : undefined;
   client = new OpenAI({
     apiKey: openaiKey,
-    organization: orgEnabled ? openaiOrgId : undefined
+    organization
   });
+  try {
+    logger.info(`OpenAI client inicializado (org header ${organization ? 'ON' : 'OFF'})`);
+  } catch (_) { /* ignore */ }
 }
 
 createClient();
 
-function isOrgMismatchError(error) {
-  const msg = (error && (error.message || error.toString())) || '';
-  return error?.status === 401 && /OpenAI-Organization header should match/i.test(msg);
-}
-
-async function callWithOrgFallback(operation, execFn) {
-  try {
-    return await execFn();
-  } catch (err) {
-    if (isOrgMismatchError(err) && orgEnabled) {
-      logger.warn('OPENAI_ORGANIZATION_ID parece no coincidir con la API key. Reintentando sin cabecera de organización...');
-      orgEnabled = false;
-      createClient();
-      // Reintentar una vez sin organización
-      return await execFn();
-    }
-    throw err;
-  }
-}
+// No verificar ni reintentar por OPENAI_ORGANIZATION_ID. Es opcional y no debe penalizar latencia.
 
 const openaiClient = {
   chatCompletionsCreate: async (params) =>
-    retry(() => withTimeout(() => callWithOrgFallback('chat_completions', () => client.chat.completions.create(params)), DEFAULT_TIMEOUT_MS, 'chat_completions')),
+    retry(() => withTimeout(() => client.chat.completions.create(params), DEFAULT_TIMEOUT_MS, 'chat_completions')),
 
   responsesCreate: async (params) =>
-    retry(() => withTimeout(() => callWithOrgFallback('responses', () => client.responses.create(params)), DEFAULT_TIMEOUT_MS, 'responses')),
+    retry(() => withTimeout(() => client.responses.create(params), DEFAULT_TIMEOUT_MS, 'responses')),
 
   audioTranscriptionsCreate: async (params) =>
-    retry(() => withTimeout(() => callWithOrgFallback('audio_transcriptions', () => client.audio.transcriptions.create(params)), DEFAULT_TIMEOUT_MS, 'audio_transcriptions')),
+    retry(() => withTimeout(() => client.audio.transcriptions.create(params), DEFAULT_TIMEOUT_MS, 'audio_transcriptions')),
 };
 
 module.exports = { openaiClient, isBreakerOpen };

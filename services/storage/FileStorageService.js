@@ -26,13 +26,30 @@ class FileStorageService {
    * @returns {string} - Ruta absoluta al archivo guardado
    */
   saveBase64File({ base64Data, fromId, prefix, extension }) {
+    // Validar base64Data
+    if (!base64Data || typeof base64Data !== 'string') {
+      throw new Error('base64Data debe ser una cadena válida');
+    }
+    
+    // Validar que es base64 válido
+    const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+    if (!base64Regex.test(base64Data)) {
+      throw new Error('base64Data no es válido');
+    }
+    
     const safeId = String(fromId || '').replace(/\D/g, '') || 'unknown';
     const timestamp = Date.now();
     const fileName = `${prefix}${safeId}_${timestamp}.${extension}`;
     const filePath = path.join(this.tempDir, fileName);
-    fs.writeFileSync(filePath, base64Data, 'base64');
-    logger.info(`Archivo guardado: ${filePath}`);
-    return filePath;
+    
+    try {
+      fs.writeFileSync(filePath, base64Data, 'base64');
+      logger.info(`Archivo guardado: ${filePath}`);
+      return filePath;
+    } catch (error) {
+      logger.error(`Error guardando archivo: ${error.message}`);
+      throw error;
+    }
   }
 
   /**

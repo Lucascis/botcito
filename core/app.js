@@ -78,12 +78,25 @@ class App {
         // DB check liviano: lista usuarios
         const stats = await this.whatsappService.getStats();
         // Estado del breaker de OpenAI
-        let breakerOpen = false;
+        let openaiBreakerOpen = false;
         try {
           const { isBreakerOpen } = require('../services/openaiClient');
-          breakerOpen = typeof isBreakerOpen === 'function' ? isBreakerOpen() : false;
-        } catch (e) { breakerOpen = false; }
-        res.json({ ready: wppReady && !breakerOpen, users: stats.totalUsers ?? 0, openaiBreakerOpen: breakerOpen });
+          openaiBreakerOpen = typeof isBreakerOpen === 'function' ? isBreakerOpen() : false;
+        } catch (e) { openaiBreakerOpen = false; }
+        
+        // Estado del breaker de archivos
+        let fileBreakerOpen = false;
+        try {
+          const fileCircuitBreaker = require('../utils/fileCircuitBreaker');
+          fileBreakerOpen = fileCircuitBreaker.isBreakerOpen();
+        } catch (e) { fileBreakerOpen = false; }
+        
+        res.json({ 
+          ready: wppReady && !openaiBreakerOpen && !fileBreakerOpen, 
+          users: stats.totalUsers ?? 0, 
+          openaiBreakerOpen,
+          fileBreakerOpen
+        });
         } catch (e) { logger.warn('Readiness check falló:', e); res.status(503).json({ ready: false }); }
     });
 
@@ -98,6 +111,9 @@ class App {
       }
     });
 
+    try {
+      logger.debug('Registrando endpoints de sesiones...');
+
     // Endpoint de conversaciones activas
     this.server.get('/conversations', (_req, res) => {
       try {
@@ -111,6 +127,64 @@ class App {
         res.status(500).json({ error: 'Error interno del servidor' });
       }
     });
+
+    // Endpoint de gestión de sesiones
+    logger.debug('Registrando endpoint /sessions');
+    this.server.get('/sessions', async (_req, res) => {
+      try {
+        const sessionManager = this.whatsappService?.integration?.sessionManager;
+        if (!sessionManager) {
+          return res.status(503).json({ error: 'Session manager not available' });
+        }
+
+        const activeSessions = await sessionManager.getActiveSessions();
+        const stats = sessionManager.getSessionStats();
+        
+        res.json({
+          sessions: activeSessions.map(session => ({
+            sessionId: session.sessionId,
+            userPhone: session.userPhone,
+            status: session.status,
+            createdAt: session.createdAt,
+            lastActive: session.lastActive,
+            expiresAt: session.expiresAt
+          })),
+          stats
+        });
+      } catch (error) {
+        logger.error('Error obteniendo sesiones:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+      }
+    });
+
+    // Endpoint para invalidar una sesión específica
+    this.server.delete('/sessions/:sessionId', async (req, res) => {
+      try {
+        const { sessionId } = req.params;
+        const sessionManager = this.whatsappService?.integration?.sessionManager;
+        
+        if (!sessionManager) {
+          return res.status(503).json({ error: 'Session manager not available' });
+        }
+
+        const result = await sessionManager.invalidateSession(sessionId, 'manual_invalidation');
+        
+        if (result) {
+          res.json({ success: true, sessionId, invalidated: true });
+        } else {
+          res.status(404).json({ error: 'Session not found or already invalid' });
+        }
+      } catch (error) {
+        logger.error('Error invalidando sesión:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+      }
+    });
+
+    logger.debug('Endpoints de sesiones registrados exitosamente');
+    } catch (error) {
+      logger.error('Error registrando endpoints de sesiones:', error);
+      throw error;
+    }
   }
 
   async start() {
@@ -121,25 +195,47 @@ class App {
       if (disableWpp === '1' || disableWpp === 'true') {
         logger.warn('WhatsAppService deshabilitado por DISABLE_WHATSAPP');
       } else {
-        await this.whatsappService.start();
+        try {
+          await this.whatsappService.start();
+        } catch (e) {
+          logger.error(`Error iniciando WhatsAppService (continuando sin WhatsApp): ${e?.message || e}`);
+        }
       }
       this.server.listen(3000, () =>
         logger.info('Servidor escuchando en el puerto 3000')
       );
       logger.info('Plataforma multi-usuario iniciada correctamente');
 
-      // Señales de apagado limpio
-      const shutdown = async (signal) => {
+      // Auto-limpieza de sesiones expiradas (cada 6 horas)
+      setInterval(async () => {
         try {
-          logger.info(`Recibida señal ${signal}. Cerrando servicios...`);
-          try { /* detener tareas cron si se guardan referencias en el futuro */ void 0; } catch (e) { void 0; }
-          try { this.whatsappService?.integration?.client?.destroy && (await this.whatsappService.integration.client.destroy()); } catch (e) { logger.warn(`Error cerrando WhatsApp: ${e?.message}`); }
-          process.exit(0);
-        } catch (e) {
-          logger.error('Error en shutdown:', e);
-          process.exit(1);
+          const sessionManager = this.whatsappService?.integration?.sessionManager;
+          if (sessionManager) {
+            await sessionManager.cleanupExpiredSessions();
+          }
+        } catch (error) {
+          logger.error('Error en limpieza automática de sesiones:', error);
         }
-      };
+      }, 6 * 60 * 60 * 1000).unref();
+
+                // Señales de apagado limpio
+          const shutdown = async (signal) => {
+            try {
+              logger.info(`Recibida señal ${signal}. Cerrando servicios...`);
+              try { /* detener tareas cron si se guardan referencias en el futuro */ void 0; } catch (e) { void 0; }
+              try { 
+                if (this.whatsappService?.integration?.destroy) {
+                  await this.whatsappService.integration.destroy();
+                }
+              } catch (e) { 
+                logger.warn(`Error cerrando WhatsApp: ${e?.message}`); 
+              }
+              process.exit(0);
+            } catch (e) {
+              logger.error('Error en shutdown:', e);
+              process.exit(1);
+            }
+          };
       process.on('SIGINT', () => shutdown('SIGINT'));
       process.on('SIGTERM', () => shutdown('SIGTERM'));
     } else {

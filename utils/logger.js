@@ -27,21 +27,21 @@ const baseFormats = isProduction
       })
     );
 
+const fileTransport = new DailyRotateFile({
+  dirname: 'logs',
+  filename: 'app-%DATE%.log',
+  datePattern: 'YYYY-MM-DD',
+  zippedArchive: true,
+  maxSize: '10m',
+  maxFiles: '14d'
+});
+
 const logger = createLogger({
   level: logLevel,
   format: baseFormats,
   transports: isProduction
-    ? [
-        new DailyRotateFile({
-          dirname: 'logs',
-          filename: 'app-%DATE%.log',
-          datePattern: 'YYYY-MM-DD',
-          zippedArchive: true,
-          maxSize: '10m',
-          maxFiles: '14d'
-        })
-      ]
-    : [new transports.Console()]
+    ? [fileTransport]
+    : [new transports.Console(), fileTransport]
 });
 
 module.exports = logger;

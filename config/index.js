@@ -21,8 +21,16 @@ const env = cleanEnv(process.env, {
   OPENAI_TEXT_PRESENCE_PENALTY: num({ default: 0 }),
   OPENAI_TEXT_FREQUENCY_PENALTY: num({ default: 0 }),
   OPENAI_IMAGE_TEMPERATURE: num({ default: 0.7 }),
-  OPENAI_IMAGE_MAX_TOKENS: num({ default: 600 })
+  OPENAI_IMAGE_MAX_TOKENS: num({ default: 600 }),
+  // Límites configurables
+  PROCESSED_MESSAGES_LIMIT: num({ default: 1000 }),
+  PROCESSED_MESSAGES_CLEANUP_SIZE: num({ default: 200 }),
+  BOT_MESSAGES_CACHE_LIMIT: num({ default: 2000 }),
+  BOT_MESSAGES_CLEANUP_SIZE: num({ default: 1000 })
 });
+
+// Asegurar que el prefijo del bot no sea vacío (si vino como cadena vacía en .env)
+const resolvedBotPrefix = (env.BOT_PREFIX && env.BOT_PREFIX.trim()) ? env.BOT_PREFIX.trim() : '#bot';
 
 const allowedNumbers = env.ALLOWED_NUMBERS
   .split(',')
@@ -34,7 +42,7 @@ module.exports = {
   openaiOrgId: env.OPENAI_ORGANIZATION_ID || null,
   allowedNumbers,
   logLevel: env.LOG_LEVEL,
-  botPrefix: env.BOT_PREFIX,
+  botPrefix: resolvedBotPrefix,
   port: env.PORT,
   nodeEnv: env.NODE_ENV,
   dbPath: env.DB_PATH,
@@ -56,5 +64,11 @@ module.exports = {
       temperature: env.OPENAI_IMAGE_TEMPERATURE,
       max_tokens: env.OPENAI_IMAGE_MAX_TOKENS
     }
+  },
+  limits: {
+    processedMessagesLimit: env.PROCESSED_MESSAGES_LIMIT,
+    processedMessagesCleanupSize: env.PROCESSED_MESSAGES_CLEANUP_SIZE,
+    botMessagesCacheLimit: env.BOT_MESSAGES_CACHE_LIMIT,
+    botMessagesCleanupSize: env.BOT_MESSAGES_CLEANUP_SIZE
   }
 };

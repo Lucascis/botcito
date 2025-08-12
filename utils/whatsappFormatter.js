@@ -1,4 +1,4 @@
-const logger = require('./logger');
+// const logger = require('./logger'); // Unused import
 
 /**
  * Utilidades para formatear mensajes para WhatsApp

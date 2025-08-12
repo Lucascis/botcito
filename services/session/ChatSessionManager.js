@@ -32,19 +32,32 @@ class ChatSessionManager {
 
   checkRateLimit(userNumber) {
     const now = Date.now();
-    const bucket = this.rateLimiter.get(userNumber) || { messages: [], lastSeen: now };
-    // Purga por minuto
-    bucket.messages = bucket.messages.filter((t) => now - t < 60000);
+    
+    // Obtener bucket existente o crear nuevo
+    let bucket = this.rateLimiter.get(userNumber);
+    if (!bucket) {
+      bucket = { messages: [], lastSeen: now };
+      this.rateLimiter.set(userNumber, bucket);
+    }
+    
+    // Purga por minuto (atomica para evitar race conditions)
+    const cutoffTime = now - 60000;
+    bucket.messages = bucket.messages.filter((t) => t > cutoffTime);
+    
     // TTL de entrada para evitar crecimiento indefinido
     if (now - bucket.lastSeen > RATE_LIMIT_ENTRY_TTL_MS) {
       bucket.messages = [];
     }
+    
+    // Verificar limite antes de agregar
     if (bucket.messages.length >= this.maxMessagesPerMinute) {
       return false;
     }
+    
+    // Agregar mensaje atomicamente
     bucket.messages.push(now);
     bucket.lastSeen = now;
-    this.rateLimiter.set(userNumber, bucket);
+    
     return true;
   }
 }

@@ -5,29 +5,34 @@
 ## 🌟 Características Principales
 
 - **Orquestador IA**: Sistema centralizado que interpreta intenciones y enruta acciones
-- **Multi-usuario**: Soporte para múltiples usuarios con contextos independientes
+- **Multi-usuario**: Soporte para múltiples usuarios con contextos independientes  
 - **Integración WhatsApp**: Canal principal de comunicación con conversaciones continuas
+- **Sesiones Persistentes**: Las sesiones de WhatsApp se recuperan automáticamente al reiniciar
 - **Búsqueda Web**: Capacidad de búsqueda en internet mediante OpenAI
- 
+- **Procesamiento Multimedia**: Soporte completo para audio, imágenes y documentos con IA
 - **Seguridad Avanzada**: Protección contra loops infinitos, rate limiting y validación robusta
 - **Arquitectura Escalable**: Preparada para múltiples canales y servicios
+- **Monitoreo Completo**: Métricas Prometheus, logs estructurados y dashboards Grafana
 
 ---
 
 ## 📑 Tabla de contenidos
 
-1. Características  
-2. Requisitos  
-3. Instalación  
-4. Configuración  
-5. Uso  
-6. Estructura del proyecto  
-7. Scripts disponibles  
-8. Seguridad  
-9. API Endpoints  
-10. Próximas mejoras  
-11. Contribuir  
-12. Licencia  
+1. [Características](#-características)  
+2. [Requisitos](#-requisitos)  
+3. [Instalación](#-instalación)  
+4. [Configuración](#-configuración)  
+5. [Uso](#-uso)  
+6. [Estructura del proyecto](#-estructura-del-proyecto)  
+7. [Scripts disponibles](#-scripts-disponibles)  
+8. [Seguridad](#-seguridad)  
+9. [Bot Response Parameters](#-bot-response-parameters)
+10. [Gestión de Sesiones](#-gestión-de-sesiones)
+11. [Monitoreo](#-monitoreo)
+12. [API Endpoints](#-api-endpoints)  
+13. [Próximas mejoras](#-próximas-mejoras)  
+14. [Contribuir](#-contribuir)  
+15. [Licencia](#-licencia)  
 
 ---
 
@@ -38,20 +43,30 @@
 - Enruta acciones a servicios específicos
 - Mantiene contexto de conversación por usuario
 - Soporte para function calling de OpenAI
+- Optimización automática de modelos según complejidad
 
 ### Sistema Multi-Usuario
 - Gestión de usuarios con SQLite
 - Contextos de conversación independientes
 - Estadísticas de uso por usuario
 - Sistema de permisos preparado
+- Prevención de race conditions en creación de usuarios
 
 ### Integración WhatsApp
 - **Conversaciones continuas**: No requiere prefijo después del comando inicial
 - **Protección anti-loops**: Distingue entre mensajes del usuario y respuestas del bot
-- **Rate limiting por usuario**: Máximo 10 mensajes por minuto
-- Validación robusta de mensajes y números autorizados
+- **Rate limiting por usuario**: Máximo 10 mensajes por minuto (configurable)
+- **Validación unificada**: Sistema robusto de validación de mensajes
+- **Gestión de memoria**: Prevención automática de memory leaks
+- **Watchdog inteligente**: Monitoreo y recuperación automática de sesiones
 - Manejo de errores robusto y logs detallados
-  
+
+### Procesamiento Multimedia
+- **Audio**: Transcripción automática con Whisper-1 de OpenAI
+- **Imágenes**: Análisis visual con GPT-4o Vision
+- **Contenido mixto**: Procesamiento conjunto de texto e imágenes
+- **Optimización de modelos**: Selección automática según complejidad
+- **Gestión de archivos**: Limpieza automática de archivos temporales
 
 ### Búsqueda Web
 - Integración con OpenAI Responses API
@@ -64,255 +79,227 @@
 ## 🛠 Requisitos
 
 - Docker ≥ 20.x y Docker Compose ≥ 1.29  
-- Node.js 18.x (solo si ejecutas localmente)  
-- Chromium disponible en contenedor (configurado automáticamente)  
-- Cuenta de OpenAI con acceso a Responses API (modelo `gpt-4o` + `web_search_preview`)  
-- Número(s) de WhatsApp autorizados (opcional)  
+- Node.js ≥ 18.x (solo para desarrollo local)
+- Git
+
+### Para WSL (Windows)
+- WSL 2 habilitado
+- Docker Desktop con integración WSL
+- Ver [WSL_SETUP.md](WSL_SETUP.md) para configuración específica
 
 ---
 
-## 🔧 Instalación
+## 🚀 Instalación
 
-### Opción 1: Instalación Automática (Recomendada)
+### Opción 1: Docker (Recomendado)
 
-1. Clona el repositorio  
-   
-       git clone https://github.com/tu-usuario/secretario-virtual.git  
-       cd secretario-virtual  
+```bash
+# Clonar repositorio
+git clone https://github.com/tu-usuario/secretario-virtual.git
+cd secretario-virtual
 
-2. Configura variables de entorno  
-   
-       cp env.example .env  
-        (Editar `.env` con tus valores:  
-         - OPENAI_API_KEY  
-         - OPENAI_ORGANIZATION_ID (opcional)  
-         - ALLOWED_NUMBERS (opcional)  
-         - BOT_PREFIX  
-         - LOG_LEVEL  
-         - OPENAI_TIMEOUT_MS / OPENAI_MAX_RETRIES  
-         - CORS_ORIGIN (opcional)  
-        )  
+# Configurar variables de entorno
+cp env.example .env
+# Editar .env con tu API key de OpenAI
 
-3. Ejecuta la configuración completa  
-   
-       ./dev-setup.sh full-setup  
-   
-   Este comando instalará dependencias, inicializará la base de datos y levantará el contenedor Docker.
+# Levantar con Docker
+docker-compose up -d
 
-### Opción 2: Instalación Manual
+# Verificar que está funcionando
+curl http://localhost:3000/health
+```
 
-1. Clona el repositorio  
-   
-       git clone https://github.com/tu-usuario/secretario-virtual.git  
-       cd secretario-virtual  
+### Opción 2: Desarrollo local
 
-2. Configura variables de entorno  
-   
-       cp env.example .env  
-       (Editar `.env` con tus valores)  
+```bash
+# Instalar dependencias
+npm ci
 
-3. Inicializa la base de datos  
-   
-       ./dev-setup.sh migrate  
+# Configurar variables
+cp env.example .env
+# Editar .env
 
-4. Construye e inicia con Docker  
-   
-       docker-compose up -d --build  
-       docker-compose logs -f app  
-   
-    Escanea el QR que aparece para autenticar WhatsApp Web.
-    Si Puppeteer requiere ruta específica, el contenedor define `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium`.
+# Migrar base de datos
+npm run migrate
+
+# Iniciar aplicación
+npm start
+```
+
+### Opción 3: Script de desarrollo WSL
+
+```bash
+# Para usuarios de WSL
+chmod +x dev-setup.sh
+./dev-setup.sh full-setup
+```
 
 ---
 
 ## ⚙️ Configuración
 
-### Variables de Entorno
+### Variables de entorno principales
 
-| Variable | Descripción | Requerido | Default |
-|----------|-------------|-----------|---------|
-| `OPENAI_API_KEY` | API Key de OpenAI | Sí | - |
-| `OPENAI_ORGANIZATION_ID` | ID de organización OpenAI | No | - |
-| `BOT_PREFIX` | Prefijo para activar el bot | No | `#bot` |
-| `ALLOWED_NUMBERS` | Números autorizados (separados por coma) | No | Todos |
-| `LOG_LEVEL` | Nivel de logging | No | `info` |
-| `PORT` | Puerto del servidor | No | `3000` |
-| `DB_PATH` | Ruta de la base de datos | No | `./data/users.db` |
-| `TEMP_DIR` | Directorio temporal para media | No | `/tmp/botcito` |
-| `OPENAI_TIMEOUT_MS` | Timeout OpenAI en ms | No | `30000` |
-| `OPENAI_MAX_RETRIES` | Reintentos OpenAI | No | `3` |
-| `PUPPETEER_EXECUTABLE_PATH` | Ruta de Chromium | No | `/usr/bin/chromium` |
-| `OPENAI_TIMEOUT_MS` | Timeout de llamadas a OpenAI | No | `30000` |
-| `OPENAI_MAX_RETRIES` | Reintentos de llamadas a OpenAI | No | `3` |
-| `TEMP_DIR` | Directorio temporal para media | No | `/tmp/botcito` |
-| `RATE_LIMIT_PER_MINUTE` | Mensajes por minuto por usuario | No | `10` |
-| `MAX_TEXT_CHARS` | Longitud máxima de texto | No | `4000` |
-| `HISTORY_LEN` | Mensajes guardados en contexto | No | `20` |
-| `MODEL_SELECTION_STRATEGY` | Estrategia de modelos (`balanced` `cost_optimized` `performance_optimized`) | No | `balanced` |
-| `WHATSAPP_FORMAT_ENHANCE` | Mejorar formato de texto | No | `true` |
-| `WHATSAPP_ADD_SEPARATORS` | Separadores visuales en respuestas | No | `false` |
-| `OPENAI_TEXT_TEMPERATURE` | Temperatura por defecto (texto) | No | `0.7` |
-| `OPENAI_TEXT_MAX_TOKENS` | Máx. tokens por defecto (texto) | No | `800` |
-| `OPENAI_TEXT_TOP_P` | Top-p | No | `1` |
-| `OPENAI_TEXT_PRESENCE_PENALTY` | Presencia | No | `0` |
-| `OPENAI_TEXT_FREQUENCY_PENALTY` | Frecuencia | No | `0` |
-| `OPENAI_IMAGE_TEMPERATURE` | Temperatura por defecto (imagen) | No | `0.7` |
-| `OPENAI_IMAGE_MAX_TOKENS` | Máx. tokens por defecto (imagen) | No | `600` |
+```bash
+# OpenAI (Requerido)
+OPENAI_API_KEY=tu_api_key_de_openai
+OPENAI_ORGANIZATION_ID=tu_organization_id_opcional
 
-### Limpieza de temporales
-- Se ejecuta al inicio y cada 30 minutos (cron `TEMP_CLEAN_CRON`) para borrar archivos en `TEMP_DIR` más antiguos que `TEMP_MAX_AGE_MS` (6h).
-
-### Componentes legacy
-Se eliminaron `controllers/messageController.js` y `services/openaiService.js` para consolidar el flujo oficial en `WhatsAppService` + `OrchestratorService` + `openaiClient` centralizado.
-
-### Ejemplo de `.env`:
-```
-OPENAI_API_KEY=sk-...
+# Bot configuration
 BOT_PREFIX=#bot
-ALLOWED_NUMBERS=+5491112345678,+5491187654321
-LOG_LEVEL=info
+MODEL_SELECTION_STRATEGY=balanced # balanced|cost_optimized|performance_optimized
+
+# Límites y seguridad
+RATE_LIMIT_PER_MINUTE=10
+MAX_TEXT_CHARS=4000
+ALLOWED_NUMBERS=+5491112345678,+5491187654321  # Opcional
+
+# Límites configurables del sistema
+PROCESSED_MESSAGES_LIMIT=1000
+PROCESSED_MESSAGES_CLEANUP_SIZE=200
+BOT_MESSAGES_CACHE_LIMIT=2000
+BOT_MESSAGES_CLEANUP_SIZE=1000
+
+# WhatsApp formatting
+WHATSAPP_FORMAT_ENHANCE=true
+WHATSAPP_ADD_SEPARATORS=false
 ```
+
+Ver `env.example` para la lista completa de variables.
 
 ---
 
-## 🚀 Uso
+## 📱 Uso
 
-### Comandos del Bot
+### Comandos WhatsApp
 
-**Conversación inicial** (requiere prefijo):
+#### Iniciar conversación:
 ```
 #bot ¿Cuál es la capital de Francia?
 ```
 
-**Conversación continua** (sin prefijo después del primer comando):
+#### Comandos disponibles una vez iniciada la conversación:
 ```
-¿Y qué otros lugares interesantes hay para visitar?
-Busca el clima en Buenos Aires hoy
-¿Qué películas de comedia recomiendas?
-```
-
-**Finalizar conversación**:
-```
+¿Cómo está el clima hoy?
+Busca información sobre Python
+Analiza esta imagen [enviar imagen]
+Transcribe este audio [enviar audio]
 desactivar conversación
 ```
 
- 
-
-### Funciones Especiales
-
-#### Búsquedas web:
-```
-#bot buscar las últimas noticias sobre inteligencia artificial
-busca el clima en Madrid  # (en conversación continua)
-```
-
-#### Auto-mensajes:
-El bot puede responder a mensajes que te envías a ti mismo, distinguiendo claramente entre:
-- ✅ **Mensajes que escribes**: Procesados normalmente
-- 🚫 **Respuestas del bot**: Ignoradas para evitar loops infinitos
-
-### API Endpoints
-
-- `GET /health` - Estado del servicio
-- `GET /ready` - Readiness (WhatsApp listo + DB)
-- `GET /metrics` - Métricas Prometheus (si `prom-client` está disponible)
-  - Contadores: mensajes recibidos/bloqueados, errores, llamadas a OpenAI
-  - Histogramas: duración de llamadas a OpenAI
-  - Resultados por handler: `bot_handler_results_total{handler="text|audio|image|mixed",result="success|error"}`
-### Parámetros de respuesta del bot (configuración y overrides)
-
-- Defaults de OpenAI para texto e imagen vienen de `.env` y se validan con `envalid`:
-  - Texto: `OPENAI_TEXT_TEMPERATURE`, `OPENAI_TEXT_MAX_TOKENS`, `OPENAI_TEXT_TOP_P`, `OPENAI_TEXT_PRESENCE_PENALTY`, `OPENAI_TEXT_FREQUENCY_PENALTY`.
-  - Imagen: `OPENAI_IMAGE_TEMPERATURE`, `OPENAI_IMAGE_MAX_TOKENS`.
-- El orquestador aplica esos defaults y permite overrides por invocación al llamar internamente:
-  - `OrchestratorService.callOpenAI(params, contentType, options)` fusiona `{...defaults, ...params}`; cualquier parámetro pasado en `params` tiene prioridad.
-  - Ej.: para subir `temperature` en una llamada concreta, pasar `params = { messages, temperature: 0.9 }`.
-- Formato de salida de WhatsApp es configurable vía `.env`:
-  - `WHATSAPP_FORMAT_ENHANCE=true|false`, `WHATSAPP_ADD_SEPARATORS=true|false`.
-- `GET /stats` - Estadísticas de usuarios
-- `GET /conversations` - Lista de conversaciones activas
+### Comandos de desactivación:
+- `desactivar conversación`
+- `detener chat` 
+- `salir`
+- `stop bot`
+- `exit`
+- `chau`
 
 ---
 
-## 📂 Estructura del proyecto
+## 📁 Estructura del proyecto
 
 ```
 secretario-virtual/
-├── .env                    ← Variables de entorno
-├── docker-compose.yml      ← Configuración Docker
-├── Dockerfile             ← Imagen Docker
-├── index.js               ← Punto de entrada
+├── config/                    # Configuración y validación de env
+│   ├── envSchema.js          # Schema de validación con envalid
+│   └── index.js              # Configuración centralizada
+├── controllers/              # (Deprecado - funcionalidad movida a services)
 ├── core/
-│   └── app.js            ← Aplicación principal
-├── models/
-│   ├── user/
-│   │   └── User.js       ← Modelo de usuarios
- 
-├── services/
-│   ├── orchestrator/
-│   │   └── OrchestratorService.js ← Orquestador IA
- 
-│   ├── whatsappService.js ← Servicio WhatsApp
- 
+│   └── app.js               # Aplicación principal Express
 ├── integrations/
 │   └── whatsapp/
-│       └── client.js      ← Cliente WhatsApp con anti-loops
-├── config/
-│   └── index.js          ← Configuración
+│       └── client.js        # Cliente WhatsApp con watchdog
+├── models/
+│   └── user/
+│       └── User.js          # Modelo de usuario SQLite
+├── services/
+│   ├── alertService.js      # Alertas y notificaciones
+│   ├── audioService.js      # Procesamiento de audio
+│   ├── imageService.js      # Procesamiento de imágenes
+│   ├── modelService.js      # Optimización de modelos IA
+│   ├── openaiClient.js      # Cliente OpenAI con circuit breaker
+│   ├── whatsappService.js   # Lógica principal WhatsApp
+│   ├── orchestrator/
+│   │   └── OrchestratorService.js  # Orquestador principal
+│   ├── router/
+│   │   └── MessageRouter.js # Router de tipos de mensaje
+│   ├── session/
+│   │   └── ChatSessionManager.js  # Gestión de sesiones
+│   └── storage/
+│       ├── FileStorageService.js  # Gestión de archivos
+│       └── TempCleanupService.js  # Limpieza automática
 ├── utils/
-│   ├── logger.js         ← Sistema de logging
-│   └── sanitizer.js      ← Sanitización de datos
-├── scripts/
-│   ├── migrate.js        ← Script de migración
-│   ├── test-setup.js     ← Pruebas de configuración
-│   ├── test-conversation.js ← Pruebas de conversación
-│   ├── test-security.js  ← Pruebas de seguridad
-├── dev-setup.sh           ← Script de configuración WSL
-├── docker-run.sh          ← Script de ejecución Docker
-├── WSL_SETUP.md          ← Documentación WSL
-└── data/                 ← Base de datos SQLite
-    └── users.db
+│   ├── commands.js          # Comandos y validaciones
+│   ├── constants.js         # Constantes del sistema
+│   ├── logger.js            # Logger con rotación
+│   ├── messageValidator.js  # Validador unificado de mensajes
+│   ├── metrics.js           # Métricas Prometheus
+│   ├── sanitizer.js         # Sanitización de entrada
+│   └── whatsappFormatter.js # Formateo de mensajes
+├── scripts/                 # Scripts de testing y migración
+├── monitoring/              # Configuración de monitoreo
+│   ├── grafana/dashboards/
+│   └── prometheus.yml
+├── logs/                    # Logs con rotación diaria
+├── data/                    # Base de datos SQLite
+└── session_data/           # Datos de sesión WhatsApp
 ```
 
 ---
 
-## 📜 Scripts disponibles
+## 🧪 Scripts disponibles
 
 ### Scripts NPM
-| Comando          | Acción                                  |
-|------------------|-----------------------------------------|
-| `npm start`      | Ejecuta `node index.js`                 |
-| `npm run dev`    | Ejecuta con nodemon                     |
-| `npm run health` | Ejecuta health check                    |
-| `npm run lint`   | Lanza ESLint en `.js`                   |
-| `npm run test`   | Ejecuta tests                           |
-| `npm run migrate`| Inicializa base de datos                |
-| `npm run test-setup` | Pruebas de configuración básica        |
-| `npm run test-conversation` | Pruebas de conversación continua       |
-| `npm run test-security` | Pruebas de seguridad anti-loops        |
-| `npm run pet-examples` | Ejemplos de mascotas virtuales         |
+| Comando | Acción |
+|---------|--------|
+| `npm start` | Iniciar aplicación |
+| `npm run dev` | Desarrollo con nodemon |
+| `npm run migrate` | Inicializar base de datos |
+| `npm run lint` | Verificar código con ESLint |
+| `npm run health` | Verificar estado de la aplicación |
 
-### Scripts de Desarrollo WSL
-| Comando          | Acción                                  |
-|------------------|-----------------------------------------|
-| `./dev-setup.sh full-setup` | Configuración completa automática      |
-| `./dev-setup.sh migrate` | Inicializa BD (WSL)                    |
-| `./dev-setup.sh test-setup` | Pruebas de configuración (WSL)         |
-| `./dev-setup.sh test-conversation` | Pruebas conversación (WSL)             |
-| `./dev-setup.sh test-security` | Pruebas seguridad (WSL)               |
-| `./dev-setup.sh docker-build` | Construir imagen Docker                |
-| `./dev-setup.sh docker-up` | Levantar contenedor                   |
-| `./dev-setup.sh docker-logs` | Ver logs del contenedor                |
+### Scripts de Testing
+| Comando | Acción |
+|---------|--------|
+| `npm run test-setup` | Pruebas de configuración inicial |
+| `npm run test-security` | Pruebas de seguridad (anti-loops, rate limiting) |
+| `npm run test-audio` | Pruebas de procesamiento de audio |
+| `npm run test-image` | Pruebas de procesamiento de imágenes |
+| `npm run test-models` | Pruebas de optimización de modelos |
+| `npm run test-multimodal` | Pruebas de integración multimodal |
+| `npm run test-user-validation` | Pruebas de validación de usuarios |
+| `npm run test-multi-chat` | Pruebas de conversaciones múltiples |
+| `npm run test-utils` | Pruebas de utilidades y helpers |
+| `npm run test-endpoints` | Pruebas de endpoints HTTP |
+| `npm run test-openai` | Prueba de conectividad OpenAI |
+
+### Scripts adicionales
+| Comando | Acción |
+|---------|--------|
+| `node scripts/test-session-persistence.js` | Pruebas de sesiones persistentes |
+| `node scripts/test-session-endpoints.js` | Pruebas de endpoints de sesiones |
+| `node scripts/test-all-corrections.js` | Pruebas de correcciones de bugs |
+
+### Scripts de Desarrollo
+| Comando | Acción |
+|---------|--------|
+| `./dev-setup.sh help` | Ver todos los comandos disponibles |
+| `./dev-setup.sh full-setup` | Configuración completa automática |
+| `./dev-setup.sh migrate` | Migrar base de datos |
+| `./dev-setup.sh test-setup` | Pruebas de configuración |
+| `./dev-setup.sh docker-up` | Levantar contenedor |
+| `./dev-setup.sh docker-logs` | Ver logs del contenedor |
 
 ### Scripts Docker
-| Comando          | Acción                                  |
-|------------------|-----------------------------------------|
-| `./docker-run.sh migrate` | Inicializa BD (Docker)                 |
-| `./docker-run.sh test-setup` | Pruebas configuración (Docker)         |
-| `./docker-run.sh test-conversation` | Pruebas conversación (Docker)          |
-| `./docker-run.sh test-security` | Pruebas seguridad (Docker)            |
-| `./docker-run.sh shell` | Shell interactivo en contenedor       |
-| `./docker-run.sh logs` | Ver logs del contenedor                |
+| Comando | Acción |
+|---------|--------|
+| `./docker-run.sh migrate` | Inicializa BD (Docker) |
+| `./docker-run.sh test-setup` | Pruebas configuración (Docker) |
+| `./docker-run.sh test-conversation` | Pruebas conversación (Docker) |
+| `./docker-run.sh test-security` | Pruebas seguridad (Docker) |
+| `./docker-run.sh shell` | Shell interactivo en contenedor |
+| `./docker-run.sh logs` | Ver logs del contenedor |
 
 ---
 
@@ -324,17 +311,27 @@ secretario-virtual/
 - **Detección de mensajes del bot**: Sistema de hashing MD5 para identificar respuestas propias
 - **Filtrado inteligente**: Distingue entre mensajes del usuario y respuestas del bot
 - **Prevención de auto-procesamiento**: Evita que el bot responda a sus propias respuestas
+- **Limpieza automática**: Cache con TTL y límites configurables
 
 #### Rate Limiting ⏱️
-- **Por usuario**: Máximo 10 mensajes por minuto por número de teléfono
+- **Por usuario**: Máximo 10 mensajes por minuto por número de teléfono (configurable)
+- **Thread-safe**: Protección contra race conditions en contadores
 - **Protección contra spam**: Bloqueo temporal de usuarios que exceden el límite
 - **Logs de seguridad**: Registro detallado de intentos bloqueados
 
 #### Validación Robusta ✅
+- **Validador unificado**: Sistema consistente con `MessageValidator`
 - **Validación de origen**: Verificación de números autorizados (opcional)
 - **Sanitización de entrada**: Limpieza y validación de todos los mensajes
-- **Validación de tipo**: Solo procesa mensajes de chat válidos
-- **Límites de longitud**: Rechazo de mensajes excesivamente largos (>4000 caracteres)
+- **Validación de tipo**: Solo procesa mensajes de chat, audio e imágenes válidos
+- **Límites configurables**: Rechazo de mensajes excesivamente largos (configurable)
+- **Validación base64**: Verificación robusta de archivos multimedia
+
+#### Gestión de Memoria 🧠
+- **Memory leak prevention**: Limpieza automática de caches con límites configurables
+- **Processed messages**: Límite de 1000 mensajes con limpieza de 200 (configurable)
+- **Bot messages cache**: Límite de 2000 con limpieza de 1000 (configurable)
+- **Archivos temporales**: Limpieza automática cada 30 minutos
 
 #### Seguridad Docker 🐳
 - **Usuario no-root**: Ejecución con usuario `app` sin privilegios
@@ -343,8 +340,11 @@ secretario-virtual/
 - **Health checks**: Monitoreo automático del estado del servicio
 
 #### Logs y Monitoreo 📊
-- **Trazabilidad completa**: Logs detallados de todos los mensajes procesados
+- **Trazabilidad completa**: Logs detallados con rotación diaria
 - **Identificación de origen**: Clasificación clara entre mensajes de usuario y bot
+- **Métricas Prometheus**: Contadores, histogramas y gauges completos
+- **Dashboards Grafana**: Visualización avanzada de métricas
+- **Circuit breaker**: Protección automática ante fallos de OpenAI
 - **Alertas de seguridad**: Notificaciones de eventos sospechosos
 - **Estadísticas de uso**: Métricas para detectar patrones anómalos
 
@@ -352,7 +352,197 @@ secretario-virtual/
 Ejecuta las pruebas de seguridad para validar todas las protecciones:
 ```bash
 ./docker-run.sh test-security
-```  
+```
+
+---
+
+## 🎛️ Bot Response Parameters
+
+### Defaults y Configuración LLM
+
+Los parámetros de respuesta del bot son completamente configurables via variables de entorno:
+
+#### Parámetros de Texto (GPT-4o)
+```bash
+OPENAI_TEXT_TEMPERATURE=0.7      # Creatividad (0.0-2.0)
+OPENAI_TEXT_MAX_TOKENS=800       # Longitud máxima de respuesta
+OPENAI_TEXT_TOP_P=1              # Diversidad de tokens (0.0-1.0)
+OPENAI_TEXT_PRESENCE_PENALTY=0   # Penalización por repetición (-2.0-2.0)
+OPENAI_TEXT_FREQUENCY_PENALTY=0  # Penalización por frecuencia (-2.0-2.0)
+```
+
+#### Parámetros de Imágenes (GPT-4o Vision)
+```bash
+OPENAI_IMAGE_TEMPERATURE=0.7     # Creatividad para análisis visual
+OPENAI_IMAGE_MAX_TOKENS=600      # Longitud de descripción
+```
+
+#### Estrategia de Selección de Modelos
+```bash
+MODEL_SELECTION_STRATEGY=balanced
+# Opciones: balanced, cost_optimized, performance_optimized
+```
+
+### Override por Invocación
+
+El sistema permite override dinámico de parámetros por llamada específica en el código:
+
+```javascript
+// En OrchestratorService.js
+const result = await this.callOpenAI({
+  temperature: 0.9,      // Override más creativo
+  max_tokens: 1200       // Override más extenso
+}, 'text', { complexity: 'high' });
+```
+
+### Configuración Adaptativa
+
+El sistema ajusta automáticamente `max_tokens` basado en la complejidad detectada:
+- **Baja complejidad**: 400-600 tokens
+- **Media complejidad**: 600-800 tokens  
+- **Alta complejidad**: 800-1200 tokens
+
+---
+
+## 💾 Gestión de Sesiones
+
+El sistema implementa **sesiones persistentes** para WhatsApp, permitiendo que los usuarios mantengan sus conversaciones activas incluso después de reiniciar la aplicación.
+
+### 🔄 Funcionamiento Automático
+
+1. **Primera conexión**: Usuario escanea QR y establece sesión
+2. **Guardado automático**: La sesión se almacena en SQLite al autenticarse
+3. **Recuperación**: Al reiniciar, la sesión se recupera automáticamente
+4. **Sin QR repetido**: El usuario no necesita escanear QR nuevamente
+
+### 📋 Gestión de Sesiones
+
+#### Información de Sesiones
+- **ID único**: Generado basado en el número de teléfono
+- **Metadatos**: Información del dispositivo y navegador
+- **Expiración**: 30 días de inactividad (configurable)
+- **Estado**: Activa, inválida o expirada
+
+#### Invalidación Automática
+Las sesiones se invalidan automáticamente cuando:
+- El usuario hace logout desde WhatsApp
+- La sesión se corrompe o desconecta
+- Expira por inactividad (30 días)
+- Hay un error de navegador irrecuperable
+
+### 🔧 Endpoints de Gestión
+
+- **`GET /sessions`**: Lista todas las sesiones activas
+- **`DELETE /sessions/:id`**: Invalida una sesión específica  
+- **`GET /ready`**: Estado del sistema incluyendo sesiones
+
+#### Ejemplo de respuesta `/sessions`:
+```json
+{
+  "sessions": [
+    {
+      "sessionId": "wpp_session_5491123456789",
+      "userPhone": "+5491123456789", 
+      "status": "active",
+      "createdAt": "2025-08-11T10:00:00Z",
+      "lastActive": "2025-08-11T16:30:00Z",
+      "expiresAt": "2025-09-10T10:00:00Z"
+    }
+  ],
+  "stats": {
+    "activeSessions": 1,
+    "cacheSize": 1,
+    "sessionDir": "/app/session_data"
+  }
+}
+```
+
+### 🧹 Limpieza Automática
+
+- **Cada 6 horas**: Limpia sesiones expiradas o inválidas
+- **Base de datos**: Mantiene histórico para auditoría
+- **Archivos**: Elimina datos temporales automáticamente
+
+### 🔧 Test de Sesiones
+
+```bash
+# Probar funcionalidad de sesiones
+npm run test-session-persistence
+
+# Verificar endpoints
+curl http://localhost:3000/sessions
+```
+
+---
+
+## 📊 Monitoreo
+
+### Métricas Prometheus
+
+El sistema expone métricas detalladas en `/metrics`:
+
+#### Contadores
+- `bot_messages_received_total`: Mensajes recibidos por tipo
+- `bot_messages_blocked_total`: Mensajes bloqueados (rate limiting)
+- `bot_errors_total`: Errores por handler
+- `bot_openai_calls_total`: Llamadas a OpenAI por tipo
+
+#### Histogramas
+- `bot_openai_call_duration_seconds`: Duración de llamadas OpenAI
+
+#### Gauges
+- `openai_breaker_open`: Estado del circuit breaker (0/1)
+- `bot_active_conversations`: Conversaciones activas
+
+### Dashboards Grafana
+
+Dashboard pre-configurado disponible en `monitoring/grafana/dashboards/secretario-virtual-overview.json`
+
+Incluye paneles para:
+- Estado del circuit breaker OpenAI
+- Conversaciones activas
+- Duración de llamadas OpenAI
+- Resultados por handler
+- Uso de CPU/memoria
+- Errores por tipo
+
+### Configuración Rápida
+
+#### 1. Prometheus
+```bash
+# Editar monitoring/prometheus.yml si no usas Docker Desktop
+# Reemplazar host.docker.internal por tu host
+
+# Iniciar Prometheus
+docker run -p 9090:9090 \
+  -v $(pwd)/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml \
+  prom/prometheus
+```
+
+#### 2. Grafana
+```bash
+# Iniciar Grafana
+docker run -p 3001:3000 grafana/grafana
+
+# Importar dashboard desde monitoring/grafana/dashboards/secretario-virtual-overview.json
+```
+
+### Alertas Recomendadas (PromQL)
+
+#### Circuit Breaker Abierto
+```promql
+max_over_time(openai_breaker_open[5m]) == 1
+```
+
+#### Sin Conversaciones Activas (horario laboral)
+```promql
+avg_over_time(bot_active_conversations[10m]) == 0
+```
+
+#### Alta Tasa de Errores
+```promql
+rate(bot_errors_total[5m]) > 0.1
+```
 
 ---
 
@@ -367,46 +557,56 @@ Estado del servicio
 ```
 
 ### GET /ready
-Readiness del servicio (WhatsApp listo, DB accesible, breaker de OpenAI cerrado)
+Readiness del servicio (WhatsApp listo, DB accesible, breakers cerrados)
 ```json
 {
   "ready": true,
   "users": 12,
-  "openaiBreakerOpen": false
+  "openaiBreakerOpen": false,
+  "fileBreakerOpen": false
 }
 ```
 
 ### GET /metrics
-Métricas Prometheus (si `prom-client` está disponible)
-- Contadores: mensajes recibidos/bloqueados, errores, llamadas a OpenAI
-- Histogramas: duración de llamadas a OpenAI
-- Gauges: `openai_breaker_open`, `bot_active_conversations`
+Métricas Prometheus (formato texto)
+```
+# HELP bot_messages_received_total Total messages received
+# TYPE bot_messages_received_total counter
+bot_messages_received_total{type="text"} 1250
+...
+```
 
----
+### GET /sessions
+Gestión de sesiones de WhatsApp
+```json
+{
+  "sessions": [
+    {
+      "sessionId": "wpp_session_5491123456789",
+      "userPhone": "+5491123456789",
+      "status": "active",
+      "createdAt": "2025-08-11T10:00:00Z",
+      "lastActive": "2025-08-11T16:30:00Z",
+      "expiresAt": "2025-09-10T10:00:00Z"
+    }
+  ],
+  "stats": {
+    "activeSessions": 1,
+    "cacheSize": 1,
+    "sessionDir": "/app/session_data"
+  }
+}
+```
 
-## 🧭 Operación
-
-- Backups: realizar copia del archivo SQLite en `data/users.db` (volumen `user_data`). Sugerido cron externo o job en CI con retención (evitar backup en caliente si hay escrituras intensas).
-- Logs: en producción se generan `logs/app-YYYY-MM-DD.log` con rotación diaria y compresión. Ajustable por `LOG_LEVEL`. En desarrollo, salida en consola legible.
-- Métricas: `GET /metrics` expone métricas Prometheus (contadores, histogramas y gauges). Alertar si `openai_breaker_open=1` sostenido o `bot_active_conversations` se mantiene en 0 en horario hábil.
-
-### Ejemplos de alertas (PromQL)
-- Breaker OpenAI abierto por 5 minutos:
-  - `max_over_time(openai_breaker_open[5m]) == 1`
-- Conversaciones activas en 0 por 10 minutos (horario laboral):
-  - `avg_over_time(bot_active_conversations[10m]) == 0`
-
-### Dashboards y Prometheus
-
-- Archivos de ejemplo:
-  - `monitoring/grafana/dashboards/secretario-virtual-overview.json`
-  - `monitoring/prometheus.yml`
-
-- Uso rápido:
-  1. Prometheus: editar `monitoring/prometheus.yml` si no usas Docker Desktop; reemplazar `host.docker.internal` por el host correcto.
-  2. Iniciar Prometheus:
-     - `docker run -p 9090:9090 -v $(pwd)/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml prom/prometheus`
-  3. Importar dashboard en Grafana: importar el JSON desde `monitoring/grafana/dashboards/secretario-virtual-overview.json` y seleccionar tu datasource Prometheus.
+### DELETE /sessions/:sessionId
+Invalida una sesión específica
+```json
+{
+  "success": true,
+  "sessionId": "wpp_session_5491123456789",
+  "invalidated": true
+}
+```
 
 ### GET /stats
 Estadísticas de usuarios
@@ -445,11 +645,19 @@ Lista de conversaciones activas
 - [x] Conversaciones continuas sin prefijo repetido
 - [x] Protección anti-loops infinitos
 - [x] Rate limiting por usuario
-- [x] Validación robusta de mensajes
+- [x] Validación robusta de mensajes unificada
 - [x] Sistema de seguridad avanzado
 - [x] Pruebas automatizadas de seguridad
 - [x] Soporte para auto-mensajes seguros
 - [x] Scripts de configuración WSL
+- [x] Procesamiento multimedia completo (audio/imágenes)
+- [x] Optimización de modelos IA
+- [x] Monitoreo con Prometheus/Grafana
+- [x] Circuit breaker para OpenAI
+- [x] Prevención de memory leaks
+- [x] Límites configurables via environment
+- [x] Validador unificado de mensajes
+- [x] Gestión robusta de archivos temporales
 
 ### 🚀 Próximas Funcionalidades
 - [ ] **Integración Discord**: Canal adicional de comunicación
@@ -459,97 +667,59 @@ Lista de conversaciones activas
 - [ ] **Servicios de descarga**: Integración con servicios Arr (Sonarr, Radarr)
 - [ ] **Recordatorios y tareas**: Sistema de notificaciones programadas
 - [ ] **Interfaz web de administración**: Panel de control visual
-- [ ] **Soporte multimedia**: Procesamiento de imágenes y audio
 - [ ] **Integración con streaming**: Control de servicios multimedia
- 
 - [ ] **Base de datos distribuida**: Soporte para múltiples nodos
 - [ ] **API GraphQL**: Interface moderna para integraciones
-- [ ] **Webhooks configurables**: Notificaciones a servicios externos
-- [ ] **Análisis de sentimientos**: Detección emocional en conversaciones
+- [ ] **Transacciones SQLite**: Para operaciones críticas complejas
+- [ ] **Circuit breaker para I/O**: Protección adicional de archivos
 
 ---
 
-## 🛠 Solución de Problemas
+## 🔧 Operación
 
-### Problemas Comunes
+### Backups
+- Realizar copia del archivo SQLite en `data/users.db` (volumen `user_data`)
+- Sugerido cron externo o job en CI con retención
+- Evitar backup en caliente si hay escrituras intensas
 
-#### Error: "Cannot find module" en WSL
-```bash
-Error: Cannot find module 'C:\Windows\scripts\migrate.js'
-```
-**Solución**: Usa los scripts de desarrollo WSL:
-```bash
-./dev-setup.sh migrate
-# o
-./docker-run.sh migrate
-```
+### Logs
+- En producción se generan `logs/app-YYYY-MM-DD.log` con rotación diaria y compresión
+- Ajustable por `LOG_LEVEL`
+- En desarrollo, salida en consola legible
 
-#### Error: "Permission denied" en scripts
-```bash
-bash: ./dev-setup.sh: Permission denied
-```
-**Solución**: Dar permisos de ejecución:
-```bash
-chmod +x dev-setup.sh docker-run.sh
-```
-
-#### Loop infinito en WhatsApp
-El sistema tiene protección automática, pero si experimentas loops:
-1. Verifica los logs: `./docker-run.sh logs`
-2. Ejecuta las pruebas de seguridad: `./docker-run.sh test-security`
-3. Reinicia el contenedor: `docker-compose restart`
-
-#### Contenedor no inicia
-```bash
-# Ver logs detallados
-docker-compose logs app
-
-# Reconstruir desde cero
-docker-compose down -v
-docker-compose up -d --build
-```
-
-### Documentación Adicional
-- **[WSL_SETUP.md](WSL_SETUP.md)**: Guía completa para entornos WSL
-- **Logs del sistema**: `docker-compose logs -f app`
-- **Shell interactivo**: `./docker-run.sh shell`
-
-### Validación del Sistema
-Ejecuta todas las pruebas para validar el funcionamiento:
-```bash
-# Configuración básica
-./docker-run.sh test-setup
-
-# Conversaciones continuas
-./docker-run.sh test-conversation
-
-# Seguridad anti-loops
-./docker-run.sh test-security
-
-# Endpoints (smoke)
-DISABLE_WHATSAPP=true OPENAI_API_KEY=dummy node index.js & APP_PID=$! && sleep 2 && node scripts/test-endpoints.js && kill $APP_PID
-
-# Conectividad real a OpenAI (requiere API key válida en .env o env)
-npm run test-openai
-```
+### Métricas y Alertas
+- `GET /metrics` expone métricas Prometheus (contadores, histogramas y gauges)
+- Alertar si `openai_breaker_open=1` sostenido
+- Alertar si `bot_active_conversations` se mantiene en 0 en horario hábil
 
 ---
 
 ## 🤝 Contribuir
 
-1. Haz fork y crea tu rama:  
-   
-       git checkout -b feature/mi-feature  
+1. Fork del proyecto
+2. Crear branch para feature (`git checkout -b feature/nueva-funcionalidad`)
+3. Commit cambios (`git commit -am 'Añadir nueva funcionalidad'`)
+4. Push al branch (`git push origin feature/nueva-funcionalidad`)
+5. Crear Pull Request
 
-2. Commit y push:  
-   
-       git commit -m "feat: descripción breve"  
-       git push origin feature/mi-feature  
-
-3. Abre un Pull Request  
+### Estándares de código:
+- ESLint configurado con reglas de seguridad
+- Tests requeridos para nuevas funcionalidades
+- Documentación actualizada
 
 ---
 
 ## 📄 Licencia
 
-Este proyecto está bajo la **MIT License**. Consulta el archivo `LICENSE`.
+Proyecto bajo licencia MIT. Ver archivo `LICENSE` para detalles.
+
+---
+
+## 🔗 Enlaces útiles
+
+- [Configuración WSL](WSL_SETUP.md)
+- [Reporte de Bugs](BUGS_DETECTADOS.md)
+- [OpenAI API Documentation](https://platform.openai.com/docs)
+- [WhatsApp Web.js](https://wwebjs.dev/)
+- [Prometheus Monitoring](https://prometheus.io/)
+- [Grafana Dashboards](https://grafana.com/)

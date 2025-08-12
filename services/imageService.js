@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const { MAX_IMAGE_MB } = require('../utils/constants');
 const cfg = require('../config');
 const FileStorageService = require('./storage/FileStorageService');
+const fileCircuitBreaker = require('../utils/fileCircuitBreaker');
 
 class ImageService {
   constructor() {
@@ -88,20 +89,22 @@ class ImageService {
    * @returns {Promise<string>} - Ruta del archivo guardado
    */
   async saveImageFile(media, fromNumber) {
-    try {
-      const extension = this.getImageExtension(media.mimetype);
-      const filePath = this.storage.saveBase64File({
-        base64Data: media.data,
-        fromId: fromNumber,
-        prefix: 'image_',
-        extension
-      });
-      return filePath;
+    return fileCircuitBreaker.execute(async () => {
+      try {
+        const extension = this.getImageExtension(media.mimetype);
+        const filePath = this.storage.saveBase64File({
+          base64Data: media.data,
+          fromId: fromNumber,
+          prefix: 'image_',
+          extension
+        });
+        return filePath;
 
-    } catch (error) {
-      logger.error('Error guardando archivo de imagen:', error);
-      throw error;
-    }
+      } catch (error) {
+        logger.error('Error guardando archivo de imagen:', error);
+        throw error;
+      }
+    }, 'save image file');
   }
 
   /**

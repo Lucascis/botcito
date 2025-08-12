@@ -23,7 +23,8 @@ Usa el script `dev-setup.sh` que maneja automáticamente los problemas de rutas:
 # Comandos individuales
 ./dev-setup.sh migrate          # Inicializar base de datos
 ./dev-setup.sh test-setup       # Pruebas de configuración
- 
+./dev-setup.sh test-security    # Pruebas de seguridad
+./dev-setup.sh test-all         # Ejecutar todos los tests
 ```
 
 ### 2. Script de Docker
@@ -36,7 +37,8 @@ docker-compose up -d
 
 # Luego ejecuta comandos dentro del contenedor
 ./docker-run.sh migrate
-./docker-run.sh test-pets
+./docker-run.sh test-setup
+./docker-run.sh test-security
 ./docker-run.sh shell          # Shell interactivo
 ```
 
@@ -47,7 +49,9 @@ Si necesitas ejecutar scripts directamente:
 ```bash
 # Usar node con rutas absolutas
 node $(pwd)/scripts/migrate.js
-node $(pwd)/scripts/test-pets.js
+node $(pwd)/scripts/test-setup.js
+node $(pwd)/scripts/test-security.js
+node $(pwd)/scripts/test-all-corrections.js
 ```
 
 ## 🔧 Configuración Paso a Paso
@@ -170,9 +174,17 @@ Una vez configurado, puedes usar el bot en WhatsApp:
 ```
 #bot ¿Cuál es la capital de Francia?
 #bot buscar clima en Buenos Aires
+#bot analiza esta imagen [enviar imagen]
+Transcribe este audio [enviar audio]
+desactivar conversación
 ```
 
- 
+### Funcionalidades Disponibles:
+- **Conversaciones continuas**: No repetir #bot después del primer mensaje
+- **Procesamiento multimedia**: Análisis de imágenes y transcripción de audio
+- **Búsqueda web**: Información actualizada de internet
+- **Protección anti-loops**: Sistema inteligente de prevención
+- **Rate limiting**: Máximo 10 mensajes por minuto por usuario
 
 ## 🔍 Comandos Útiles
 
@@ -216,6 +228,12 @@ curl http://localhost:3000/stats
 
 # Health check
 curl http://localhost:3000/health
+
+# Métricas Prometheus
+curl http://localhost:3000/metrics
+
+# Conversaciones activas
+curl http://localhost:3000/conversations
 ```
 
 ## 🆘 Obtener Ayuda
@@ -233,4 +251,34 @@ Si tienes problemas:
 - **Permisos:** Los scripts necesitan permisos de ejecución (`chmod +x`)
 - **Docker:** Asegúrate de que Docker Desktop esté ejecutándose
 - **Puertos:** El puerto 3000 debe estar libre
-- **Variables:** Verifica que `.env` esté configurado correctamente 
+- **Variables:** Verifica que `.env` esté configurado correctamente
+- **OpenAI API:** Se requiere una API key válida de OpenAI
+- **Memoria:** El sistema previene automáticamente memory leaks
+- **Seguridad:** Rate limiting y validación están activos por defecto
+- **Logs:** Los logs se guardan en `logs/` con rotación diaria
+- **Tests:** Ejecuta `npm run test-security` para validar el sistema
+
+## 🔒 Características de Seguridad
+
+### Protecciones Implementadas
+- ✅ **Memory leak prevention**: Limpieza automática de caches
+- ✅ **Rate limiting**: 10 mensajes/minuto por usuario (configurable)
+- ✅ **Anti-loop protection**: Prevención de bucles infinitos
+- ✅ **Message validation**: Validador unificado robusto
+- ✅ **Circuit breaker**: Protección ante fallos de OpenAI
+- ✅ **Thread-safe operations**: Sin race conditions críticas
+
+### Monitoreo Disponible
+- 📊 **Métricas Prometheus**: `/metrics` endpoint
+- 📈 **Dashboards Grafana**: Configuración incluida
+- 📋 **Logs estructurados**: Rotación diaria automática
+- 🔍 **Health checks**: `/health` y `/ready` endpoints
+
+## 🚀 Nuevas Funcionalidades v3.0
+
+- ✅ **Procesamiento multimedia**: Audio y imágenes con IA
+- ✅ **Optimización de modelos**: Selección automática según complejidad
+- ✅ **Validación unificada**: MessageValidator para consistencia
+- ✅ **Límites configurables**: Todas las constantes via `.env`
+- ✅ **Gestión robusta**: Watchdog y recuperación automática
+- ✅ **Tests completos**: Validación automática de correcciones

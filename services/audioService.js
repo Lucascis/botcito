@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 const { sanitizeText } = require('../utils/sanitizer');
 const { MAX_AUDIO_MB } = require('../utils/constants');
 const FileStorageService = require('./storage/FileStorageService');
+const fileCircuitBreaker = require('../utils/fileCircuitBreaker');
 
 class AudioService {
   constructor() {
@@ -53,25 +54,27 @@ class AudioService {
    * @returns {Promise<string>} - Ruta del archivo guardado
    */
   async saveAudioFile(media, fromNumber) {
-    try {
-      // Validar tamaño antes de guardar
-      const sizeCheck = this.checkAudioSize(media);
-      if (!sizeCheck.isValid) {
-        throw new Error(`Audio muy grande: ${sizeCheck.sizeMB}MB > ${sizeCheck.maxSizeMB}MB`);
-      }
-      const extension = this.getAudioExtension(media.mimetype);
-      const filePath = this.storage.saveBase64File({
-        base64Data: media.data,
-        fromId: fromNumber,
-        prefix: 'audio_',
-        extension
-      });
-      return filePath;
+    return fileCircuitBreaker.execute(async () => {
+      try {
+        // Validar tamaño antes de guardar
+        const sizeCheck = this.checkAudioSize(media);
+        if (!sizeCheck.isValid) {
+          throw new Error(`Audio muy grande: ${sizeCheck.sizeMB}MB > ${sizeCheck.maxSizeMB}MB`);
+        }
+        const extension = this.getAudioExtension(media.mimetype);
+        const filePath = this.storage.saveBase64File({
+          base64Data: media.data,
+          fromId: fromNumber,
+          prefix: 'audio_',
+          extension
+        });
+        return filePath;
 
-    } catch (error) {
-      logger.error('Error guardando archivo de audio:', error);
-      throw error;
-    }
+      } catch (error) {
+        logger.error('Error guardando archivo de audio:', error);
+        throw error;
+      }
+    }, 'save audio file');
   }
 
   /**

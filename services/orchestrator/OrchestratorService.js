@@ -32,9 +32,19 @@ class OrchestratorService {
       // Preparar parámetros con el modelo seleccionado
       const defaults = cfg?.defaults || {};
       const defaultsForType = contentType === 'image' || contentType === 'mixed' ? (defaults.image || {}) : (defaults.text || {});
+      // Ajuste dinámico de max_tokens para reducir latencia sin perder calidad
+      let adaptiveMaxTokens = undefined;
+      if ((contentType === 'text' || contentType === 'mixed') && !params?.max_tokens) {
+        const level = (options?.complexity || 'low').toString();
+        if (level === 'low') adaptiveMaxTokens = 256;
+        else if (level === 'medium') adaptiveMaxTokens = 512;
+        else adaptiveMaxTokens = defaultsForType.max_tokens || 800;
+      }
+
       const callParams = {
         model: optimalModel,
         ...defaultsForType,
+        ...(adaptiveMaxTokens ? { max_tokens: adaptiveMaxTokens } : {}),
         ...params
       };
 
@@ -57,12 +67,21 @@ class OrchestratorService {
    */
   async processMessage(userId, phoneNumber, text, timestampSec, channel = 'whatsapp') {
     try {
-      // Crear o obtener usuario
+      // Crear o obtener usuario (con manejo de race condition)
       let user = await this.userModel.getUserByPhone(phoneNumber);
       if (!user) {
-        await this.userModel.createUser(phoneNumber);
+        try {
+          await this.userModel.createUser(phoneNumber);
+          logger.info(`Nuevo usuario creado: ${phoneNumber}`);
+        } catch (error) {
+          // El usuario pudo haber sido creado por otro proceso concurrente
+          logger.debug(`Error creando usuario (posible race condition): ${error.message}`);
+        }
+        // Reintentamos obtener el usuario
         user = await this.userModel.getUserByPhone(phoneNumber);
-        logger.info(`Nuevo usuario creado: ${phoneNumber}`);
+        if (!user) {
+          throw new Error(`No se pudo crear ni obtener usuario: ${phoneNumber}`);
+        }
       } else {
         logger.debug(`Usuario existente: ${user.name || phoneNumber} (ID: ${user.id})`);
       }
@@ -119,7 +138,7 @@ class OrchestratorService {
 2. Realizar búsquedas web para obtener información actualizada
 3. Mantener conversaciones contextuales
 
-Responde siempre en el mismo idioma en que el usuario hace la consulta.
+Responde siempre en el mismo idioma en que el usuario hace la consulta. Responde de forma concisa.
 La fecha y hora actual es ${timestampStr} (America/Argentina/Buenos_Aires).
 Usuario: ${user.name || phoneNumber}
 
@@ -148,7 +167,7 @@ Comandos disponibles:
         },
         {
           name: 'deactivate_conversation',
-          description: 'Llamar cuando el usuario exprese que desea finalizar, desactivar, despedirse o terminar la conversación.',
+          description: 'SOLO llamar cuando el usuario EXPLÍCITAMENTE diga palabras como "desactivar", "detener", "salir", "stop", "exit", "chau", "terminar conversación". NO usar para saludos normales como "hola".',
           parameters: {
             type: 'object',
             properties: {},

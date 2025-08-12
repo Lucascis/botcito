@@ -5,11 +5,12 @@ const ImageService = require('./imageService');
 const logger = require('../utils/logger');
 const { botPrefix, allowedNumbers, whatsappFormatEnhance, whatsappAddSeparators } = require('../config');
 const { sanitizeText } = require('../utils/sanitizer');
-const { MAX_TEXT_CHARS, RATE_LIMIT_PER_MINUTE } = require('../utils/constants');
+const { RATE_LIMIT_PER_MINUTE } = require('../utils/constants');
 const MessageRouter = require('./router/MessageRouter');
 const ChatSessionManager = require('./session/ChatSessionManager');
 const WhatsAppFormatter = require('../utils/whatsappFormatter');
 const { metrics } = require('../utils/metrics');
+const MessageValidator = require('../utils/messageValidator');
 
 /**
  * Servicio que envuelve la integración con WhatsApp y añade registros.
@@ -24,6 +25,26 @@ class WhatsAppService {
     // Retrocompatibilidad para scripts que acceden directamente a estos Maps
     this.activeConversations = this.session.activeConversations;
     this.rateLimiter = this.session.rateLimiter;
+  }
+
+  async startTyping(msg) {
+    try {
+      const chat = await msg.getChat();
+      const refreshMs = 9000; // WhatsApp expira typing ~10s
+      let stopped = false;
+      const send = async () => { try { await chat.sendStateTyping(); } catch (_) { /* ignore */ } };
+      await send();
+      const interval = setInterval(send, refreshMs);
+      const stop = async () => {
+        if (stopped) return;
+        stopped = true;
+        clearInterval(interval);
+        try { await chat.clearState(); } catch (_) { /* ignore */ }
+      };
+      return stop;
+    } catch (_) {
+      return async () => {};
+    }
   }
 
   /**
@@ -65,9 +86,12 @@ class WhatsAppService {
       return msg.id.remote;
     }
     
-    // Fallback: usar 'to' para mensajes que enviamos, 'from' para mensajes que recibimos
-    // Esto asegura que obtengamos el ID del chat correcto
-    return msg.fromMe ? msg.to : msg.from;
+    // Fallback robusto: usar id de chat del mensaje si está disponible
+    if (msg.id && typeof msg.id.remote === 'string') {
+      return msg.id.remote;
+    }
+    // Último recurso: usar 'to' para mensajes que enviamos, 'from' para los que recibimos
+    return (msg.fromMe && typeof msg.to === 'string') ? msg.to : msg.from;
   }
 
   /**
@@ -110,6 +134,7 @@ class WhatsAppService {
     const chatId = this.getChatId(msg);
     const userNumber = this.getUserNumber(msg);
     let audioPath = null;
+    let stopTyping;
 
     try {
       logger.info(`Mensaje de audio recibido de ${userNumber} en chat ${chatId}`);
@@ -131,6 +156,7 @@ class WhatsAppService {
       }
       
       logger.info(`Procesando audio de ${userNumber} en chat ${chatId} (conversación activa)`);
+      stopTyping = await this.startTyping(msg);
       
       // Descargar y guardar audio
       const media = await msg.downloadMedia();
@@ -190,6 +216,7 @@ class WhatsAppService {
       if (audioPath) {
         this.audioService.cleanupFile(audioPath);
       }
+      try { await stopTyping(); } catch (_) { /* ignore */ }
     }
   }
 
@@ -200,6 +227,7 @@ class WhatsAppService {
   async handleImage(msg) {
     const { from, timestamp } = msg;
     let imagePath = null;
+    let stopTyping;
 
     try {
       logger.info(`Procesando mensaje de imagen de ${from}`);
@@ -231,6 +259,8 @@ class WhatsAppService {
         }
         return; // Silencioso
       }
+
+      stopTyping = await this.startTyping(msg);
 
       // Descargar y guardar imagen (validación básica local permitida)
       const media = await msg.downloadMedia();
@@ -271,12 +301,67 @@ class WhatsAppService {
       if (metrics && typeof metrics.incError === 'function') {
         metrics.incError('image');
       }
-      await this.sendMessage(from, WhatsAppFormatter.formatError('Error de imagen', 'Ocurrió un problema procesando tu imagen. Intenta nuevamente.'));
+      const chatId = this.getChatId(msg);
+      await this.sendMessage(chatId, WhatsAppFormatter.formatError('Error de imagen', 'Ocurrió un problema procesando tu imagen. Intenta nuevamente.'));
     } finally {
       // Limpiar archivo temporal
       if (imagePath) {
         this.imageService.cleanupFile(imagePath);
       }
+      try { await stopTyping(); } catch (_) { /* ignore */ }
+    }
+  }
+
+  /**
+   * Maneja documentos (PDF, DOC, etc.)
+   * @param {Object} msg - Mensaje de WhatsApp
+   */
+  async handleDocument(msg) {
+    const chatId = this.getChatId(msg);
+    const userNumber = this.getUserNumber(msg);
+    let stopTyping;
+
+    try {
+      stopTyping = await this.startTyping(msg);
+      
+      logger.info(`Procesando documento de ${userNumber} en chat ${chatId}`);
+      
+      const media = await msg.downloadMedia();
+      if (!media) {
+        throw new Error('No se pudo descargar el documento');
+      }
+
+      // Extraer información del documento
+      const filename = media.filename || 'documento';
+      const mimetype = media.mimetype || 'application/octet-stream';
+      const sizeBytes = Buffer.byteLength(media.data, 'base64');
+      const sizeMB = (sizeBytes / (1024 * 1024)).toFixed(2);
+
+      logger.info(`Documento recibido: ${filename} (${mimetype}, ${sizeMB}MB)`);
+
+      // Por ahora, responder con información del documento
+      // En el futuro se puede integrar con APIs de procesamiento de documentos
+      const response = `📄 *Documento recibido*\n\n` +
+                      `📝 Archivo: ${filename}\n` +
+                      `📊 Tipo: ${mimetype}\n` +
+                      `💾 Tamaño: ${sizeMB}MB\n\n` +
+                      `ℹ️ *Actualmente no puedo procesar el contenido de documentos, pero he recibido tu archivo correctamente.*\n\n` +
+                      `💡 *Tip:* Si necesitas que analice el contenido, puedes:\n` +
+                      `• Copiar y pegar el texto del documento\n` +
+                      `• Enviar capturas de pantalla de las páginas importantes\n` +
+                      `• Hacer preguntas específicas sobre el contenido`;
+
+      await this.sendMessage(chatId, response);
+      logger.info(`Información del documento enviada al chat ${chatId}`);
+
+    } catch (error) {
+      logger.error(`Error procesando documento en chat ${chatId}:`, error);
+      await this.sendMessage(chatId, WhatsAppFormatter.formatError(
+        'Error procesando documento',
+        'No pude procesar tu documento. Intenta enviarlo nuevamente o contacta al administrador si el problema persiste.'
+      ));
+    } finally {
+      try { await stopTyping?.(); } catch (_) { /* ignore */ }
     }
   }
 
@@ -287,6 +372,7 @@ class WhatsAppService {
   async handleMixed(msg) {
     const { from, body, timestamp } = msg;
     let imagePath = null;
+    let stopTyping;
 
     try {
       logger.info(`Procesando mensaje mixto (imagen + texto) de ${from}`);
@@ -294,19 +380,23 @@ class WhatsAppService {
         metrics.incMessageReceived('whatsapp', 'mixed');
       }
       
+      stopTyping = await this.startTyping(msg);
+
       // Descargar y guardar imagen
       const media = await msg.downloadMedia();
       
       // Verificar que sea un tipo de imagen válido
       if (!this.imageService.isValidImageType(media.mimetype)) {
-        await this.sendMessage(from, '❌ Tipo de imagen no válido. Envía una imagen en formato JPG, PNG, WebP o GIF.');
+        const chatId = this.getChatId(msg);
+        await this.sendMessage(chatId, '❌ Tipo de imagen no válido. Envía una imagen en formato JPG, PNG, WebP o GIF.');
         return;
       }
       
       // Verificar tamaño de la imagen
       const sizeCheck = this.imageService.checkImageSize(media);
       if (!sizeCheck.isValid) {
-        await this.sendMessage(from, `❌ Imagen muy grande (${sizeCheck.sizeMB}MB). El límite es ${sizeCheck.maxSize / (1024 * 1024)}MB.`);
+        const chatId = this.getChatId(msg);
+        await this.sendMessage(chatId, `❌ Imagen muy grande (${sizeCheck.sizeMB}MB). El límite es ${sizeCheck.maxSize / (1024 * 1024)}MB.`);
         if (metrics && typeof metrics.incMessageBlocked === 'function') {
           metrics.incMessageBlocked('image_too_large');
         }
@@ -381,12 +471,14 @@ class WhatsAppService {
       if (metrics && typeof metrics.incError === 'function') {
         metrics.incError('mixed');
       }
-      await this.sendMessage(from, WhatsAppFormatter.formatError('Error en imagen + texto', 'No pude procesar la imagen con tu mensaje. Intenta nuevamente.'));
+      const chatId = this.getChatId(msg);
+      await this.sendMessage(chatId, WhatsAppFormatter.formatError('Error en imagen + texto', 'No pude procesar la imagen con tu mensaje. Intenta nuevamente.'));
     } finally {
       // Limpiar archivo temporal
       if (imagePath) {
         this.imageService.cleanupFile(imagePath);
       }
+      try { await stopTyping(); } catch (_) { /* ignore */ }
     }
   }
 
@@ -395,29 +487,19 @@ class WhatsAppService {
    * @param {Object} msg Mensaje de WhatsApp
    */
   async handleMessage(msg) {
-    // Validaciones tempranas fuera del try/catch para que los tests capten errores en mensajes inválidos
-    if (!msg || typeof msg !== 'object') {
-      throw new Error('INVALID_MESSAGE: object required');
+    // Validación unificada de mensajes
+    const validation = MessageValidator.validateMessage(msg, true);
+    if (!validation.isValid) {
+      return; // Error ya fue lanzado por el validador
     }
+
     const typeEarly = msg.type;
     const hasMediaEarly = Boolean(msg.hasMedia);
-    const bodyEarly = msg.body;
-    const userNumberEarly = this.getUserNumber(msg);
-    if (!userNumberEarly) {
-      throw new Error('INVALID_MESSAGE: sender missing');
-    }
-    if ((typeEarly === 'image' || typeEarly === 'audio' || typeEarly === 'ptt') && !hasMediaEarly) {
-      throw new Error('INVALID_MESSAGE: media type without media');
-    }
-    if (typeof bodyEarly !== 'string') {
-      throw new Error('INVALID_MESSAGE: body must be string');
-    }
-    if (bodyEarly.length === 0) {
-      throw new Error('INVALID_MESSAGE: empty body');
-    }
-    if (bodyEarly.length > MAX_TEXT_CHARS) { // Límite de caracteres por mensaje
-      throw new Error('INVALID_MESSAGE: too long');
-    }
+    const bodyEarly = typeof msg.body === 'string' ? msg.body : '';
+    // const userNumberEarly = this.getUserNumber(msg); // Used only for early debug logging
+    let stopTyping;
+    
+    logger.info(`Inbound msg: type=${typeEarly}, from=${msg.from}, to=${msg.to}, fromMe=${msg.fromMe}, hasMedia=${hasMediaEarly}, bodyLen=${bodyEarly.length}`);
     try {
       const { body, timestamp, type } = msg;
       const chatId = this.getChatId(msg);
@@ -458,6 +540,9 @@ class WhatsAppService {
           
         case 'mixed':
           return await this.handleMixed(msg);
+          
+        case 'document':
+          return await this.handleDocument(msg);
           
         case 'text':
           // Continuar con el procesamiento normal de texto
@@ -503,6 +588,7 @@ class WhatsAppService {
       }
 
       logger.info(`Procesando mensaje de ${userNumber} en chat ${chatId}: "${text}"`);
+      stopTyping = await this.startTyping(msg);
 
       // Procesar mensaje normal con el orquestador
       const result = await this.orchestrator.processMessage(
@@ -537,6 +623,7 @@ class WhatsAppService {
           logger.info(`🔵 No se desactiva conversación (shouldDeactivate = ${result.shouldDeactivate})`);
         }
       }
+      try { await stopTyping(); } catch (_) { /* ignore */ }
 
     } catch (error) {
       logger.error('Error procesando mensaje de WhatsApp:', error);
@@ -570,7 +657,9 @@ class WhatsAppService {
       await this.integration.sendMessage(to, text);
     } catch (err) {
       logger.error(`Error enviando mensaje a ${to}:`, err);
-      throw err;
+      // No propagar para evitar cascadas si la sesión de puppeteer se cerró.
+      // El watchdog/reintentos de la integración intentarán recuperar el cliente.
+      return;
     }
   }
 
