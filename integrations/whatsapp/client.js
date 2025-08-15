@@ -308,7 +308,13 @@ class WhatsAppIntegration {
           this.lastQrHash = qrHash;
           this.lastQrPrintTs = now;
           logger.info('Escanee el código QR para conectar WhatsApp');
+          // Mostrar en terminal y además persistir el QR ASCII en el log de archivos
           qrcode.generate(qr, { small: true });
+          try {
+            qrcode.generate(qr, { small: true }, (ascii) => {
+              try { logger.info(`\n${ascii}`); } catch (_) { /* ignore */ }
+            });
+          } catch (_) { /* ignore */ }
         } catch (e) {
           logger.error('Error mostrando QR:', e);
         }
